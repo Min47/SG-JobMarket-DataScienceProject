@@ -94,15 +94,91 @@ class CleanedJob:
     To modify schema: Add/remove/change fields here only.
     """
 
-    job_id: str
-    title: str
-    company: str
-    location: str
-    description_clean: str
-    url: str
+    # =====
+    # Metadata fields
     source: str
-    date_posted: str
-    salary_min_monthly_sgd: Optional[float]
-    salary_max_monthly_sgd: Optional[float]
-    currency: str = "SGD"
+    scrape_timestamp: str  # ISO 8601 timestamp
+    bq_timestamp: str  # BigQuery ingestion timestamp
 
+
+    # =====
+    # Job fields (all will be taken under "payload" > "raw" parent json)
+    job_id: str 
+    # JobStreet: "job" > "id"
+    # MCF: "uuid"
+
+    job_url: str
+    # JobStreet: "job" > "shareLink"
+    # MCF: "metadata" > "jobDetailsUrl"
+
+    job_title: str
+    # JobStreet: "job" > "title"
+    # MCF: "title"
+
+    job_description: str # Need to clean HTML tags
+    # JobStreet: "job" > "content"
+    # MCF: "description"
+
+    job_location: str
+    # JobStreet: "job" > "tracking" > "locationInfo" > "location"
+    # MCF: "address" > "districts" > first element > "location"
+
+    job_classification: str
+    # JobStreet: "job" > "tracking" > "classificationInfo" > "classification" ("job" > "tracking" > "classificationInfo" > "subClassification" by appending after "classification" with a " - " separator if exists)
+    # MCF: "categories" > first element > "category"
+
+    job_work_type: str
+    # JobStreet: "job" > "workTypes" > "label"
+    # MCF: "employmentTypes" > first element > "employmentType"
+
+    job_salary_min_sgd_raw: Optional[float]
+    # JobStreet: parsed from "job" > "salary" > "label" (Don't convert to monthly, take raw. Need to extract min value if range)
+    # MCF: parsed from "salary" > "minimum" (Don't convert to monthly, take raw.)
+
+    job_salary_max_sgd_raw: Optional[float]
+    # JobStreet: parsed from "job" > "salary" > "label" (Don't convert to monthly, take raw. Need to extract max value if range)
+    # MCF: parsed from "salary" > "maximum" (Don't convert to monthly, take raw.)
+
+    job_salary_type: str
+    # JobStreet: parsed from "job" > "salary" > "label" (e.g., "per month", "per year")
+    # MCF: "salary" > "type" > "salaryType" (e.g., "Monthly")
+
+    job_salary_min_sgd_monthly: Optional[float]
+    # Converted to monthly SGD equivalent
+
+    job_salary_max_sgd_monthly: Optional[float]
+    # Converted to monthly SGD equivalent
+
+    job_currency: str
+    # All use SGD temporarily
+
+    job_posted_timestamp: str
+    # JobStreet: "job" > "listedAt" > "dateTimeUtc"
+    # MCF: "metadata" > "updatedAt"
+
+
+    # =====
+    # Employer fields
+    company_id: str
+    # JobStreet: "companyProfile" > "id"
+    # MCF: "postedCompany" > "uen"
+
+    company_url: str
+    # JobStreet: "companySearchUrl"
+    # MCF: "postedCompany" > "_links" > "self" > "href"
+
+    company_name: str
+    # JobStreet: "job" > "advertiser" > "name"
+    # MCF: "postedCompany" > "name"
+
+    company_description: str
+    # JobStreet: "companyProfile" > "overview" > "description" > "paragraphs" (joined with double newlines)
+    # MCF: "postedCompany" > "description"
+
+    company_industry: str
+    # JobStreet: "companyProfile" > "overview" > "industry"
+    # MCF: Not available
+
+    company_size: str
+    # JobStreet: "companyProfile" > "overview" > "size" > "description"
+    # MCF: "postedCompany" > "employeeCount"
