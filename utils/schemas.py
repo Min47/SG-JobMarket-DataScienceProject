@@ -12,6 +12,7 @@ To add/remove/modify fields:
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
+from datetime import datetime
 from typing import Any, Dict, List, Optional, get_args, get_origin
 
 from google.cloud import bigquery
@@ -19,16 +20,20 @@ from google.cloud import bigquery
 
 def _python_type_to_bq_type(python_type: type) -> str:
     """Convert Python type annotation to BigQuery type."""
-    # Handle Optional[X] by extracting X
+    # Get origin first to check type structure
     origin = get_origin(python_type)
+    
+    # Handle Optional[X] by extracting X
     if origin is not None:
         args = get_args(python_type)
         if type(None) in args:
-            # It's Optional[X], get X
+            # It's Optional[X], get the non-None type
             python_type = args[0] if args[0] is not type(None) else args[1]
+            # Re-get origin after unwrapping Optional
+            origin = get_origin(python_type)
     
     # Check for Dict type (for JSON columns)
-    if origin is dict or str(python_type).startswith("typing.Dict"):
+    if origin is dict:
         return "JSON"
     
     # Map Python types to BigQuery types
@@ -38,7 +43,7 @@ def _python_type_to_bq_type(python_type: type) -> str:
         float: "FLOAT",
         bool: "BOOLEAN",
         dict: "JSON",
-        Dict: "JSON",
+        datetime: "TIMESTAMP",
     }
     
     return type_map.get(python_type, "STRING")  # Default to STRING
@@ -46,11 +51,24 @@ def _python_type_to_bq_type(python_type: type) -> str:
 
 def _dataclass_to_bq_schema(dataclass_type: type) -> List[bigquery.SchemaField]:
     """Auto-generate BigQuery schema from dataclass."""
+    import typing
+    from datetime import datetime as dt_class
     schema_fields = []
     
     for field in fields(dataclass_type):
         field_name = field.name
         field_type = field.type
+        
+        # Handle string annotations from `from __future__ import annotations`
+        if isinstance(field_type, str):
+            # Evaluate string annotation to get actual type
+            try:
+                # Create namespace with typing and datetime
+                namespace = {**typing.__dict__, 'datetime': dt_class}
+                field_type = eval(field_type, namespace, {})
+            except:
+                # If evaluation fails, keep as string type
+                pass
         
         # Determine if field is nullable (Optional or has default)
         is_optional = (
@@ -80,7 +98,7 @@ class RawJob:
 
     job_id: str
     source: str
-    scrape_timestamp: str  # ISO 8601 timestamp
+    scrape_timestamp: datetime  # Timestamp of when job was scraped
     payload: Dict[str, Any]  # Raw JSON payload from source
 
 
@@ -97,8 +115,8 @@ class CleanedJob:
     # =====
     # Metadata fields
     source: str
-    scrape_timestamp: str  # ISO 8601 timestamp
-    bq_timestamp: str  # BigQuery ingestion timestamp
+    scrape_timestamp: datetime  # Timestamp of when job was scraped
+    bq_timestamp: datetime  # BigQuery ingestion timestamp
 
 
     # =====
@@ -152,7 +170,7 @@ class CleanedJob:
     job_currency: str
     # All use SGD temporarily
 
-    job_posted_timestamp: str
+    job_posted_timestamp: datetime
     # JobStreet: "job" > "listedAt" > "dateTimeUtc"
     # MCF: "metadata" > "updatedAt"
 

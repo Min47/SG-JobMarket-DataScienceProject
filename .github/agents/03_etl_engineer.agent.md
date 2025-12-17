@@ -8,14 +8,21 @@ You are the ETL Engineer.
 Clean scraped data and prepare ML-ready dataset using Cloud Function (event-driven ETL).
 
 # Current Status
-**Status:** 🔴 BLOCKED - Waiting for BigQuery streaming API from Cloud Backend Agent
+**Status:** � UNBLOCKED - BigQuery API ready, begin Phase 1 implementation
 
-**Blocker:** Cloud Backend must implement `utils/bq.py` functions first:
-- `stream_rows_to_bq()` - Required for ETL to write cleaned data
-- `ensure_dataset()` - Required to create BigQuery dataset
-- `ensure_table()` - Required to create BigQuery tables
+**BigQuery Integration:** ✅ COMPLETE
+- ✅ `stream_rows_to_bq()` - Ready for ETL to write cleaned data
+- ✅ `ensure_dataset()` - Dataset creation implemented
+- ✅ `ensure_table()` - Table creation with TIMESTAMP partitioning implemented
+- ✅ `load_jsonl_to_bq()` - JSONL loading implemented
 
-**Once unblocked:** Begin Phase 1 (local ETL development)
+**Ready to implement:** Phase 1 (local ETL development)
+
+**Virtual Environment Usage:**
+- ⚠️ **CRITICAL:** Always use `.venv/Scripts/python.exe` for all Python commands
+- Install dependencies: `.venv/Scripts/python.exe -m pip install <package>`
+- Run scripts: `.venv/Scripts/python.exe etl/pipeline.py`
+- Update `requirements.txt` when adding new dependencies
 
 # Technical Stack
 -   **Libraries:** `pandas`, `pyarrow`, `regex`, `google-cloud-bigquery`, `google-cloud-storage`
@@ -48,7 +55,16 @@ Scraper → GCS (raw/*.jsonl.gz) → Cloud Function → BigQuery (cleaned_jobs)
 ## Phase 1: Core ETL Logic (LOCAL DEVELOPMENT)
 Develop and test ETL functions locally before Cloud Function deployment.
 
-### 1A: Text Cleaning Functions
+### 1A: Stage 1 - Raw Data Ingestion
+- [ ] Create `etl/load_raw_data.py`:
+  - `load_jsonl_to_raw_jobs()`: Wrapper around `utils/bq.load_jsonl_to_bq()`
+  - Process GCS path: `gs://bucket/raw/source/timestamp/dump.jsonl`
+  - Load into `raw_jobs` table (append-only)
+  - Log row counts and success rate
+- [ ] Test with local JSONL files from `data/raw/jobstreet/` and `data/raw/mcf/`
+- [ ] Add unit tests: `tests/test_load_raw_data.py`
+
+### 1B: Stage 2 - Text Cleaning Functions
 - [ ] Create `etl/text_cleaning.py`:
   - `clean_description(text: str) -> str`: Remove HTML tags, normalize whitespace, clean unicode
   - `normalize_company_name(name: str) -> str`: Standardize company names (case, punctuation)
@@ -56,7 +72,7 @@ Develop and test ETL functions locally before Cloud Function deployment.
   - `detect_language(text: str) -> str`: Use langdetect to identify language
 - [ ] Add comprehensive unit tests: `tests/test_text_cleaning.py`
 
-### 1B: Salary Parsing
+### 1C: Stage 2 - Salary Parsing
 - [ ] Enhance `etl/salary_parser.py`:
   - Parse ranges: "3000-5000", "$3k-$5k", "3000 to 5000"
   - Handle hourly/monthly/annual rates
@@ -65,8 +81,25 @@ Develop and test ETL functions locally before Cloud Function deployment.
 - [ ] Support edge cases: "Competitive", "Negotiable", missing salary
 - [ ] Add tests: `tests/test_salary_parser.py`
 
-### 1C: Deduplication Logic
-- [ ] Create `etl/deduplication.py`:
+### 1D: Stage 2 - Transformation Pipeline
+- [ ] Create `etl/pipeline.py`:
+  - `transform_raw_to_cleaned()`: Read from `raw_jobs`, transform, write to `cleaned_jobs`
+  - Apply text cleaning, salary parsing, field extraction
+  - Append-only writes (no updates)
+  - Log transformation statistics
+- [ ] **Note on Deduplication:** NO deduplication in ETL
+  - ETL always appends new rows (never updates/deletes)
+  - Deduplication happens at query time using `ROW_NUMBER()`:
+    ```sql
+    SELECT * FROM (
+      SELECT *, ROW_NUMBER() OVER (
+        PARTITION BY source, job_id 
+        ORDER BY scrape_timestamp DESC
+      ) AS rn FROM cleaned_jobs
+    ) WHERE rn = 1
+    ```
+- [ ] Create helper function `etl/query_helpers.py`:
+  - `get_latest_jobs()`: Query helper that applies `ROW_NUMBER()` deduplication
   - `generate_job_hash(title: str, company: str, description: str) -> str`: SHA256 hash
   - `deduplicate_jobs(jobs: list[dict]) -> list[dict]`: Remove duplicates by hash
   - Keep most recent job if duplicates found

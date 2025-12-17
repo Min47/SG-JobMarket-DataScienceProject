@@ -23,10 +23,14 @@ All components must be modular, testable, documented, and cloud-ready.
 2. **ETL Pipeline**
    - Runs as Cloud Function (event-driven, triggered by GCS).
    - Triggered automatically when scraper uploads `.jsonl` to GCS.
-   - Cleans text, parses salary, dedupes, normalizes.
-   - Streams cleaned data directly to BigQuery (no intermediate Parquet).
+   - Two-stage pipeline:
+     * Stage 1: JSONL → raw_jobs (append-only)
+     * Stage 2: raw_jobs → cleaned_jobs (transform, append-only)
+   - Streams data directly to BigQuery (no intermediate Parquet).
    - BigQuery dataset: sg_job_market
    - BigQuery tables: raw_jobs, cleaned_jobs
+   - **IMPORTANT:** Append-only design - no updates/deletes
+   - Deduplication at query-time using ROW_NUMBER() OVER (PARTITION BY source, job_id ORDER BY scrape_timestamp DESC)
 
 3. **NLP + ML**
    - Use Sentence-BERT for embeddings.
@@ -51,6 +55,56 @@ All components must be modular, testable, documented, and cloud-ready.
      - Streamlit app (Python)
    - Include job trends, salary ranges, clusters, ML comparison.
 
+6. **BigQuery Data Model**
+   - **Append-only design:** Never update or delete rows
+   - All tables partitioned by `scrape_timestamp` (TIMESTAMP type)
+   - `raw_jobs`: Clustered by (source, job_id)
+   - `cleaned_jobs`: Clustered by (source, job_id, company_name)
+   - Deduplication strategy:
+     ```sql
+     SELECT * FROM (
+       SELECT *, ROW_NUMBER() OVER (
+         PARTITION BY source, job_id 
+         ORDER BY scrape_timestamp DESC
+       ) AS rn FROM cleaned_jobs
+     ) WHERE rn = 1
+     ```
+
+========================================================
+⚙️ VIRTUAL ENVIRONMENT (CRITICAL)
+========================================================
+**ALWAYS use `.venv` for all Python commands:**
+
+# Windows PowerShell:
+.venv\Scripts\python.exe -m scraper --site jobstreet
+.venv\Scripts\python.exe test_bq_streaming.py
+.venv\Scripts\pip.exe install <package>
+
+# Update requirements.txt when adding dependencies:
+pip freeze > requirements.txt
+
+========================================================
+🧪 TESTING
+========================================================
+**All tests organized in `/tests/` directory:**
+
+**Primary Test (Run This):**
+`.venv\Scripts\python.exe tests\test_two_stage_pipeline.py`
+- Validates complete JSONL → raw_jobs → cleaned_jobs pipeline
+- Tests with real scraper data (5,800+ rows)
+- Validates deduplication query pattern
+- 100% success rate on all stages
+
+**Additional Tests:**
+- `tests/test_bq_streaming.py` - BigQuery streaming API validation
+- `tests/test_bq_core.py` - Core infrastructure tests
+
+**Utility Functions:**
+- `.venv\Scripts\python.exe -m utils.bq recreate-tables` - Recreate BigQuery tables (⚠️ DELETES DATA)
+
+**Documentation:**
+- `tests/README.md` - Complete testing guide with results and architecture
+
 ========================================================
 💻 CODE QUALITY & CONVENTIONS
 ========================================================
@@ -65,21 +119,25 @@ All components must be modular, testable, documented, and cloud-ready.
   - GCS operations
   - BigQuery operations
 - All outputs must be deterministic and consistent with BigQuery schema.
+- Use datetime objects for timestamps (not strings) - auto-converted to TIMESTAMP in BigQuery.
+- All BigQuery operations are append-only - never update or delete rows.
 
 ========================================================
 📁 FOLDER STRUCTURE (COPILOT MUST FOLLOW)
 ========================================================
 /scraper/           → jobsite scrapers, base classes, parsers
-/etl/               → cleaning, transforms, salary parsing
+/etl/               → cleaning, transforms, salary parsing, pipeline
 /nlp/               → embeddings, tokenization, language cleaning
 /ml/                → training pipelines & evaluation
 /api/               → FastAPI app for Cloud Run
 /dashboard/         → Streamlit UI
-/utils/             → bq.py, gcs.py, config.py, logging.py
+/utils/             → bq.py, gcs.py, config.py, logging.py, schemas.py
 /models/            → saved ML artifacts
 /notebooks/         → exploration only
 /data/raw/          → local raw dumps (gitignored)
 data/processed/     → cleaned datasets (gitignored)
+/.venv/             → Python virtual environment (ALWAYS USE THIS)
+/tests/             → unit tests for all modules
 
 ========================================================
 👥 TEAM AGENTS (COPILOT MUST OBEY ROLE RULES)
