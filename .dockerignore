@@ -1,0 +1,61 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Local data and logs (not needed in container)
+data/
+logs/
+notebooks/
+
+# Environment files (use build args or runtime env vars instead)
+.env
+.env.*
+
+# Documentation and markdown (optional - can include if needed)
+*.md
+docs/
+
+# CI/CD and project files
+.github/
+.dockerignore
+Dockerfile*
+docker-compose*.yml
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.log

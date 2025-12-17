@@ -1,0 +1,274 @@
+version: '3.8'
+
+services:
+  scraper-jobstreet:
+    build:
+      context: .
+      dockerfile: Dockerfile.scraper.jobstreet
+    container_name: sg-job-scraper-jobstreet
+    image: sg-job-scraper:jobstreet
+    environment:
+      # GCP Configuration
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - BIGQUERY_DATASET_ID=${BIGQUERY_DATASET_ID}
+      - GCS_BUCKET=${GCS_BUCKET}
+      - GCP_REGION=${GCP_REGION:-asia-southeast1}
+      
+      # Scraper Configuration
+      - SCRAPER_USER_AGENTS=${SCRAPER_USER_AGENTS:-Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36}
+      - GCS_UPLOAD_ENABLED=${GCS_UPLOAD_ENABLED:-false}
+      - LOCAL_RETENTION_DAYS=${LOCAL_RETENTION_DAYS:-30}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      # Mount source code for development
+      - ./scraper:/app/scraper
+      - ./utils:/app/utils
+      - ./etl:/app/etl
+      
+      # Mount data and logs for local testing
+      - ./data:/app/data
+      - ./logs:/app/logs
+      
+      # GCS Credentials (OPTIONAL - only if GCS_UPLOAD_ENABLED=true)
+      # Run first: gcloud auth application-default login
+      # Then uncomment ONE of these:
+      # Windows ADC:
+      # - ${APPDATA}/gcloud/application_default_credentials.json:/app/gcp-credentials.json:ro
+      # Linux/Mac ADC:
+      # - ~/.config/gcloud/application_default_credentials.json:/app/gcp-credentials.json:ro
+      # Service Account Key (NOT recommended):
+      # - ./gcp-key.json:/app/gcp-credentials.json:ro
+    command: ["--site", "jobstreet"]
+    restart: "no"
+    networks:
+      - sg-job-network
+
+  scraper-mcf:
+    build:
+      context: .
+      dockerfile: Dockerfile.scraper.mcf
+    container_name: sg-job-scraper-mcf
+    image: sg-job-scraper:mcf
+    environment:
+      # GCP Configuration
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - BIGQUERY_DATASET_ID=${BIGQUERY_DATASET_ID}
+      - GCS_BUCKET=${GCS_BUCKET}
+      - GCP_REGION=${GCP_REGION:-asia-southeast1}
+      
+      # Scraper Configuration
+      - SCRAPER_USER_AGENTS=${SCRAPER_USER_AGENTS:-Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36}
+      - GCS_UPLOAD_ENABLED=${GCS_UPLOAD_ENABLED:-false}
+      - LOCAL_RETENTION_DAYS=${LOCAL_RETENTION_DAYS:-30}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+      # GCS Authentication (only needed if GCS_UPLOAD_ENABLED=true)
+      # - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-credentials.json
+      
+      # Chrome/Selenium Configuration
+      - CHROME_BIN=/usr/bin/google-chrome
+      - CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
+      
+      # GCS Authentication (only needed if GCS_UPLOAD_ENABLED=true)
+      # - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-credentials.json
+    volumes:
+      # Mount source code for development
+      - ./scraper:/app/scraper
+      - ./utils:/app/utils
+      - ./etl:/app/etl
+      
+      # Mount data and logs for local testing
+      - ./data:/app/data
+      - ./logs:/app/logs
+      
+      # Shared memory for Chrome (required for stability)
+      - /dev/shm:/dev/shm
+      
+      # GCS Credentials (OPTIONAL - only if GCS_UPLOAD_ENABLED=true)
+      # See scraper-jobstreet service comments for credential mount options
+    command: ["--site", "mcf"]
+    restart: "no"
+    shm_size: '2gb'
+    networks:
+      - sg-job-network
+
+networks:
+  sg-job-network:
+    driver: bridge
+
+
+
+
+# In GCP, processess are as follows: 
+# 1. Cloud Build: Build Docker images from Dockerfiles and push to Artifact Registry
+# 2. Cloud Run Jobs: Deploy Docker images as Cloud Run Jobs for serverless execution
+# 3. Cloud Scheduler: Schedule periodic triggers for Cloud Run Jobs
+# 4. GCS: Store scraped data files
+# 5. Cloud Dataflow: Read from GCS, transform, write to BQ
+# 6. BigQuery: Load and analyze scraped data
+
+# ==============================================================================
+# Local Development & Testing Instructions
+# ==============================================================================
+# 
+# 1. Build images:
+#    docker-compose build scraper-jobstreet
+#    docker-compose build scraper-mcf
+#
+# 2. Run individual scraper:
+#    docker-compose --env-file .env up scraper-jobstreet
+#    docker-compose --env-file .env up scraper-mcf
+
+#    (Detached mode)
+#    docker-compose --env-file .env up -d scraper-jobstreet
+#    docker-compose --env-file .env up -d scraper-mcf
+#
+# 3. View logs:
+#    docker-compose logs -f scraper-jobstreet
+#    docker-compose logs -f scraper-mcf
+#
+# 4. Stop containers:
+#    docker-compose down
+#
+# 5. Remove volumes:
+#    docker-compose down -v
+
+
+# =============================================================================
+# IAM Principal for Cloud Run: (Enable IAM API)
+# =============================================================================
+
+# 1. Set up a Service Account with necessary permissions for Cloud Run and Cloud Scheduler to invoke the jobs.
+#    gcloud iam service-accounts create [SERVICE_ACCOUNT_ID] \
+#    --display-name "[DISPLAY_NAME]" \
+#    --project="sg-job-market" \
+#    --description="[OPTIONAL_DESCRIPTION]"
+# Example:
+#    gcloud iam service-accounts create GCP-general-sa --display-name "GCP General Service Account" --project="sg-job-market" --description="General Service Account for GCP services"
+
+# 2. Assign roles to the Service Account (GCS, BigQuery, Cloud Run Invoker, Cloud Scheduler Admin):
+#    gcloud projects add-iam-policy-binding sg-job-market --member="serviceAccount:GCP-general-sa@sg-job-market.iam.gserviceaccount.com" --role="roles/storage.admin"
+#    gcloud projects add-iam-policy-binding sg-job-market --member="serviceAccount:GCP-general-sa@sg-job-market.iam.gserviceaccount.com" --role="roles/bigquery.dataEditor"
+#    gcloud projects add-iam-policy-binding sg-job-market --member="serviceAccount:GCP-general-sa@sg-job-market.iam.gserviceaccount.com" --role="roles/run.invoker"
+#    gcloud projects add-iam-policy-binding sg-job-market --member="serviceAccount:GCP-general-sa@sg-job-market.iam.gserviceaccount.com" --role="roles/cloudscheduler.admin"
+
+# 3. Check the Service Account and roles assigned: 
+#
+# (need to install `jq` for JSON parsing: Set-ExecutionPolicy RemoteSigned -Scope CurrentUser irm get.scoop.sh | iex
+# Then install jq: scoop install jq)
+#
+#    gcloud projects get-iam-policy sg-job-market --format="json" | jq '.bindings[] | select(.members[] | contains("serviceAccount:GCP-general-sa@sg-job-market.iam.gserviceaccount.com"))'
+
+
+# ==============================================================================
+# Cloud Build & Artifact Registry: (Enable Cloud Build API)
+# ==============================================================================
+
+# 1. Register in Artifact Registry:
+#    gcloud artifacts repositories create scraper-jobstreet-docker --repository-format=docker --location=asia-southeast1 --description="Docker of JobStreet Scraper"
+#    gcloud artifacts repositories create scraper-mcf-docker --repository-format=docker --location=asia-southeast1 --description="Docker of MCF Scraper"
+
+# 2. Check in Google Cloud Artifact Registry if the repositories are created. Or run:
+#    gcloud artifacts repositories list
+
+# 3. Run the following command:
+#    gcloud auth configure-docker asia-southeast1-docker.pkg.dev
+
+# 4. Create cloudbuild.jobstreet.yaml and cloudbuild.mcf.yaml files.
+
+# 5. On the directory containing the Dockerfile, run: (`sg-job-market` is the GCP_PROJECT_ID, can get from `gcloud config get-value project`)
+#    gcloud builds submit . --config=cloudbuild.jobstreet.yaml
+#    gcloud builds submit . --config=cloudbuild.mcf.yaml
+
+
+# ==============================================================================
+# GCS: (Enable Cloud Storage API)
+# ==============================================================================
+
+# 1. Create GCS Bucket
+# (gcloud storage buckets create gs://BUCKET_NAME --location=BUCKET_LOCATION --clear-soft-delete)
+#    gcloud storage buckets create gs://sg-job-market-data --location=asia-southeast1
+
+# 2. Clear soft delete (optional, to immediately free up space if bucket existed previously)
+#    gcloud storage buckets update gs://sg-job-market-data --clear-soft-delete
+
+#####
+# 3. Check bucket:
+#    gcloud storage buckets describe gs://sg-job-market-data
+
+# 4. Grant Permissions (if not done already)
+# gcloud projects add-iam-policy-binding sg-job-market --member="serviceAccount:GCP-general-sa@sg-job-market.iam.gserviceaccount.com" --role="roles/storage.admin"
+
+
+# ==============================================================================
+# Cloud Run: (Enable Cloud Run API)
+# ==============================================================================
+#
+# IMPORTANT: Scrapers are batch jobs, not web services!
+# - Use Cloud Run JOBS (not Services) for batch tasks
+# - Jobs run to completion and exit (no port listening required)
+# - Can be triggered manually or by Cloud Scheduler
+# - Only charged while running (cost-optimized)
+
+# 0. Delete all previous Cloud Run Jobs (if any):
+#    gcloud run jobs delete cloudjob-scraper-jobstreet --region=asia-southeast1
+#    gcloud run jobs delete cloudjob-scraper-mcf --region=asia-southeast1
+
+# 1. Deploy as Cloud Run Job:
+#    gcloud run jobs create cloudjob-scraper-jobstreet --image=asia-southeast1-docker.pkg.dev/sg-job-market/scraper-jobstreet-docker/sg-job-scraper:jobstreet --region=asia-southeast1 --memory=512Mi --cpu=1 --max-retries=3 --task-timeout=1d --set-env-vars="GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1,GCS_BUCKET=sg-job-market-data,GCS_UPLOAD_ENABLED=true,LOG_LEVEL=INFO" --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com
+#
+#    gcloud run jobs create cloudjob-scraper-mcf --image=asia-southeast1-docker.pkg.dev/sg-job-market/scraper-mcf-docker/sg-job-scraper:mcf --region=asia-southeast1 --memory=1Gi --cpu=1 --max-retries=3 --task-timeout=1d --set-env-vars="GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1,GCS_BUCKET=sg-job-market-data,GCS_UPLOAD_ENABLED=true,LOG_LEVEL=INFO,CHROME_BIN=/usr/bin/google-chrome,CHROMEDRIVER_PATH=/usr/local/bin/chromedriver" --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com
+
+# 2. Check deployment:
+#    gcloud run jobs list --region=asia-southeast1
+#    gcloud run jobs describe cloudjob-scraper-jobstreet --region=asia-southeast1
+#    gcloud run jobs describe cloudjob-scraper-mcf --region=asia-southeast1
+
+#####
+# 3. Manually execute the job (for testing):
+#    gcloud run jobs execute cloudjob-scraper-jobstreet --region=asia-southeast1
+#    gcloud run jobs execute cloudjob-scraper-mcf --region=asia-southeast1
+
+# 4. View execution status:
+#    gcloud run jobs executions list --job=cloudjob-scraper-jobstreet --region=asia-southeast1
+#    gcloud run jobs executions list --job=cloudjob-scraper-mcf --region=asia-southeast1
+
+# 5. Update job configuration (if needed):
+#    gcloud run jobs update cloudjob-scraper-jobstreet --region=asia-southeast1 --memory=1Gi
+#    gcloud run jobs update cloudjob-scraper-mcf --region=asia-southeast1 --task-timeout=30m
+#    gcloud run jobs update cloudjob-scraper-jobstreet --image=asia-southeast1-docker.pkg.dev/sg-job-market/scraper-jobstreet-docker/sg-job-scraper:jobstreet --region=asia-southeast1
+#    gcloud run jobs update cloudjob-scraper-mcf --image=asia-southeast1-docker.pkg.dev/sg-job-market/scraper-mcf-docker/sg-job-scraper:mcf --region=asia-southeast1
+
+# ==============================================================================
+# Cloud Scheduler (Automated Daily Runs): (Enable Cloud Scheduler API)
+# ==============================================================================
+
+# 1. Set up Cloud Scheduler to trigger the job periodically:
+# gcloud scheduler jobs create http SCHEDULER_JOB_NAME \
+#   --location SCHEDULER_REGION \
+#   --schedule="SCHEDULE" \
+#   --uri="https://run.googleapis.com/v2/projects/PROJECT-ID/locations/CLOUD_RUN_REGION/jobs/JOB-NAME:run" \
+#   --http-method POST
+#   --oidc-service-account-email="SERVICE-ACCOUNT-EMAIL"
+# 
+# Example:
+#    gcloud scheduler jobs create http scheduler-scraper-jobstreet --location asia-southeast1 --schedule="0 13 * * *" --uri="https://run.googleapis.com/v2/projects/sg-job-market/locations/asia-southeast1/jobs/cloudjob-scraper-jobstreet:run" --http-method POST --oauth-service-account-email="GCP-general-sa@sg-job-market.iam.gserviceaccount.com"
+#    gcloud scheduler jobs create http scheduler-scraper-mcf --location asia-southeast1 --schedule="0 1 * * *" --uri="https://run.googleapis.com/v2/projects/sg-job-market/locations/asia-southeast1/jobs/cloudjob-scraper-mcf:run" --http-method POST --oauth-service-account-email="GCP-general-sa@sg-job-market.iam.gserviceaccount.com"
+
+# 2. To verify Cloud Scheduler jobs:
+#    gcloud scheduler jobs list --location asia-southeast1
+# Describe a scheduler job:
+#    gcloud scheduler jobs describe scheduler-scraper-jobstreet --location asia-southeast1
+#    gcloud scheduler jobs describe scheduler-scraper-mcf --location asia-southeast1
+
+#####
+# 3. To run a scheduler job manually:
+#    gcloud scheduler jobs run scheduler-scraper-jobstreet --location asia-southeast1 
+#    gcloud scheduler jobs run scheduler-scraper-mcf --location asia-southeast1
+
+# 4. Check currently running jobs in Cloud Run: (takes slightly awhile to reflect on 'Running')
+#    gcloud run jobs executions list --region=asia-southeast1
+
+# 5. Read container logs:
+#    gcloud run jobs logs read cloudjob-scraper-jobstreet --region=asia-southeast1 --limit=20
+#    gcloud run jobs logs read cloudjob-scraper-mcf --region=asia-southeast1 --limit=20

@@ -1,0 +1,15 @@
+requests==2.32.5
+beautifulsoup4==4.14.3
+httpx==0.28.1
+aiohttp==3.13.2
+selectolax==0.4.6
+pandas==2.3.3
+pyarrow==22.0.0
+google-cloud-bigquery==3.38.0
+google-cloud-storage==3.7.0
+tqdm==4.67.1
+python-dotenv==1.2.1
+selenium==4.39.0
+spacy==3.8.11
+langdetect==1.0.9
+wheel==0.45.1

@@ -1,0 +1,133 @@
+# =============================================================================
+# Multi-stage Dockerfile for MyCareersFuture Scraper (Python + Chrome)
+# Target size: <800MB (includes Chrome/ChromeDriver)
+# Memory: 1GB
+# CPU: 1 vCPU
+# =============================================================================
+
+# =============================================================================
+# Stage 1: Builder - Install dependencies and create wheels
+# =============================================================================
+FROM python:3.13-slim-bookworm AS builder
+
+# Set working directory
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file
+COPY requirements.txt .
+
+# Create wheels for all dependencies (faster installation in runtime stage)
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+# =============================================================================
+# Stage 2: Runtime - Chrome-enabled image
+# =============================================================================
+FROM python:3.13-slim-bookworm AS runtime
+
+# Set labels for metadata
+LABEL maintainer="SG Job Market Team"
+LABEL description="MyCareersFuture scraper with Chrome for Singapore Job Market Intelligence Platform"
+LABEL version="1.0"
+
+# Specify Chrome and ChromeDriver versions (update these together)
+# Find versions at: https://googlechromelabs.github.io/chrome-for-testing/
+ARG CHROME_VERSION=143.0.7499.42
+ARG CHROMEDRIVER_VERSION=143.0.7499.42
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# Install Chrome and dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Chrome dependencies
+    wget \
+    gnupg \
+    ca-certificates \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libwayland-client0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils \
+    # Utilities
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install specific Chrome version from Chrome for Testing
+RUN wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip" -O /tmp/chrome.zip && \
+    unzip /tmp/chrome.zip -d /opt/ && \
+    ln -s /opt/chrome-linux64/chrome /usr/bin/google-chrome && \
+    rm /tmp/chrome.zip
+
+# Install specific ChromeDriver version (matching Chrome)
+# Install specific ChromeDriver version (matching Chrome)
+RUN wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROMEDRIVER_VERSION}/linux64/chromedriver-linux64.zip" -O /tmp/chromedriver.zip && \
+    unzip /tmp/chromedriver.zip -d /tmp/ && \
+    mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver && \
+    chmod +x /usr/local/bin/chromedriver && \
+    rm -rf /tmp/chromedriver* && \
+    chromedriver --version
+
+# Verify Chrome installation
+RUN google-chrome --version && \
+    chromedriver --version
+
+# Set Chrome-specific environment variables
+ENV CHROME_BIN=/usr/bin/google-chrome \
+    CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
+
+# Create non-root user for security
+RUN groupadd -r scraperuser && \
+    useradd -r -g scraperuser -u 101 -m scraperuser && \
+    mkdir -p /app/data /app/logs /home/scraperuser/.cache/selenium && \
+    chown -R scraperuser:scraperuser /app /home/scraperuser
+
+# Set working directory
+WORKDIR /app
+
+# Copy wheels from builder stage
+COPY --from=builder /wheels /wheels
+
+# Install dependencies from wheels
+RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* && \
+    rm -rf /wheels
+
+# Copy application code (ordered by change frequency for layer caching)
+COPY --chown=scraperuser:scraperuser utils/ ./utils/
+COPY --chown=scraperuser:scraperuser scraper/ ./scraper/
+COPY --chown=scraperuser:scraperuser etl/ ./etl/
+
+# Switch to non-root user
+USER scraperuser
+
+# Health check (verify Chrome is accessible)
+HEALTHCHECK --interval=30s --timeout=15s --start-period=10s --retries=3 \
+    CMD python -c "import scraper; import utils; from selenium import webdriver; print('OK')" || exit 1
+
+# Default command (can be overridden by docker-compose or Cloud Run)
+ENTRYPOINT ["python", "-m", "scraper"]
+CMD ["--site", "mcf"]

@@ -1,0 +1,80 @@
+# =============================================================================
+# Multi-stage Dockerfile for JobStreet Scraper (Python-only, no Chrome)
+# Target size: <500MB
+# Memory: 512MB
+# CPU: 0.5 vCPU
+# =============================================================================
+
+# =============================================================================
+# Stage 1: Builder - Install dependencies and create wheels
+# =============================================================================
+FROM python:3.13-slim-bookworm AS builder
+
+# Set working directory
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file
+COPY requirements.txt .
+
+# Create wheels for all dependencies (faster installation in runtime stage)
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+# =============================================================================
+# Stage 2: Runtime - Minimal production image
+# =============================================================================
+FROM python:3.13-slim-bookworm AS runtime
+
+# Set labels for metadata
+LABEL maintainer="SG Job Market Team"
+LABEL description="JobStreet scraper for Singapore Job Market Intelligence Platform"
+LABEL version="1.0"
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install runtime dependencies only (minimal set)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd -r scraperuser && \
+    useradd -r -g scraperuser -u 101 scraperuser && \
+    mkdir -p /app/data /app/logs && \
+    chown -R scraperuser:scraperuser /app
+
+# Set working directory
+WORKDIR /app
+
+# Copy wheels from builder stage
+COPY --from=builder /wheels /wheels
+
+# Install dependencies from wheels
+RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* && \
+    rm -rf /wheels
+
+# Copy application code (ordered by change frequency for layer caching)
+COPY --chown=scraperuser:scraperuser utils/ ./utils/
+COPY --chown=scraperuser:scraperuser scraper/ ./scraper/
+COPY --chown=scraperuser:scraperuser etl/ ./etl/
+
+# Switch to non-root user
+USER scraperuser
+
+# Health check (simple Python import test)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import scraper; import utils; print('OK')" || exit 1
+
+# Default command (can be overridden by docker-compose or Cloud Run)
+ENTRYPOINT ["python", "-m", "scraper"]
+CMD ["--site", "jobstreet"]

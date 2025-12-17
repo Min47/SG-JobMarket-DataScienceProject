@@ -1,0 +1,10 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+    'build', 
+    '-t', 'asia-southeast1-docker.pkg.dev/sg-job-market/scraper-mcf-docker/sg-job-scraper:mcf', 
+    '-f', 'Dockerfile.scraper.mcf', 
+    '.'
+  ]
+images:
+- 'asia-southeast1-docker.pkg.dev/sg-job-market/scraper-mcf-docker/sg-job-scraper:mcf'
