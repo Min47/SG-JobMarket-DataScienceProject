@@ -31,23 +31,54 @@ Clean scraped data and prepare ML-ready dataset using Cloud Function (event-driv
 -   **Focus:** Lightweight cleaning and normalization within 512MB memory limit
 
 # Architecture Decision: Cloud Function ETL ✅
-**Why Cloud Function (not Cloud Dataflow):**
-- FREE within GCP free tier (2M invocations/month)
-- Simple deployment and maintenance
-- Sufficient for current data volume (<10K jobs per scrape)
-- Event-driven (automatic trigger on GCS upload)
-- Fast processing (<2 minutes per scrape)
+
+**Why Cloud Function (not Cloud Dataflow or Cloud Run Service):**
+- ✅ **FREE** within GCP free tier (2M invocations/month)
+- ✅ **Event-driven:** Triggered automatically by GCS (no polling, no constant running)
+- ✅ **Stateless:** Runs once per event, then terminates (no persistent containers)
+- ✅ **Simple:** No container orchestration, no load balancing needed
+- ✅ **Fast:** Sub-minute cold start, processes <10K jobs in <2 minutes
+- ✅ **Cost-effective:** Only pay for execution time (free tier covers all usage)
+
+**Cloud Function vs Cloud Run Service:**
+| Feature | Cloud Function | Cloud Run Service |
+|---------|----------------|-------------------|
+| Trigger | Event-driven (GCS, Pub/Sub) | HTTP requests or scheduled |
+| Cost | FREE (2M invocations/month) | Pay per request + idle time |
+| Execution | Runs once per event | Always-on or min instances |
+| Use Case | ETL, data processing | APIs, web services |
 
 **Data Flow:**
 ```
-Scraper → GCS (raw/*.jsonl.gz) → Cloud Function → BigQuery (cleaned_jobs)
-                 ↓ (finalize event)        ↓ (uses stream_rows_to_bq)
-          Automatic trigger            BigQuery cleaned_jobs table
+Step 1: Scraper uploads to GCS
+  Scraper → gs://sg-job-market-data/raw/jobstreet/2025-12-18_210000/dump.jsonl.gz
+      ↓
+Step 2: GCS fires "object.finalize" event (automatic, within seconds)
+      ↓
+Step 3: Cloud Function executes ONCE
+  stage1_and_stage2_combined(event, context):
+    a. Download: gs://... → /tmp/dump.jsonl.gz (Cloud Function temp storage)
+    b. Transform Stage 1: JSONL → RawJob objects
+    c. Stream to BigQuery: raw_jobs table
+    d. Transform Stage 2: RawJob → CleanedJob objects
+    e. Stream to BigQuery: cleaned_jobs table
+      ↓
+Step 4: Function terminates (cleans up /tmp/, no persistent state)
 ```
+
+**Deployment Details:**
+- **Platform:** Cloud Functions Gen 2 (Python 3.13 runtime)
+- **Trigger:** `--trigger-event=google.storage.object.finalize`
+- **Filter:** `--trigger-resource=gs://sg-job-market-data --event-filters="bucket=sg-job-market-data,prefix=raw/"`
+- **Memory:** 512MB (sufficient for 10K jobs)
+- **Timeout:** 540s (9 minutes max)
+- **Temp Storage:** `/tmp/` directory (2GB available, auto-cleaned after execution)
+- **Service Account:** `GCP-general-sa@sg-job-market.iam.gserviceaccount.com`
+- **IAM Roles:** Storage Object Viewer, BigQuery Data Editor
 
 **Dependencies:**
 - ✅ GCS Integration: `utils/gcs.py` (READY - implemented by Cloud Backend)
-- 🔴 BigQuery API: `utils/bq.py` (BLOCKED - needs Cloud Backend implementation)
+- ✅ BigQuery API: `utils/bq.py` (READY - implemented by Cloud Backend)
 - ✅ Schemas: `utils/schemas.py`, `utils/bq_schemas.py` (READY)
 
 # Tasks
@@ -55,14 +86,58 @@ Scraper → GCS (raw/*.jsonl.gz) → Cloud Function → BigQuery (cleaned_jobs)
 ## Phase 1: Core ETL Logic (LOCAL DEVELOPMENT)
 Develop and test ETL functions locally before Cloud Function deployment.
 
-### 1A: Stage 1 - Raw Data Ingestion
-- [ ] Create `etl/load_raw_data.py`:
-  - `load_jsonl_to_raw_jobs()`: Wrapper around `utils/bq.load_jsonl_to_bq()`
-  - Process GCS path: `gs://bucket/raw/source/timestamp/dump.jsonl`
-  - Load into `raw_jobs` table (append-only)
-  - Log row counts and success rate
-- [ ] Test with local JSONL files from `data/raw/jobstreet/` and `data/raw/mcf/`
-- [ ] Add unit tests: `tests/test_load_raw_data.py`
+### 1A: Combined Cloud Function Entry Point (RECOMMENDED APPROACH)
+**Why combined:** Simpler architecture, fewer moving parts, no Pub/Sub setup needed.
+
+- [ ] Create `etl/cloud_function_main.py`:
+  - **Function:** `process_gcs_upload(event, context)` - Handles both Stage 1 & 2 in single execution
+  - **Triggered by:** GCS Object Finalize event (automatic when scraper uploads JSONL)
+  - **Stage 1 logic:** Download JSONL from GCS to `/tmp/` → Stream to raw_jobs
+  - **Stage 2 logic:** Transform RawJob → CleanedJob → Stream to cleaned_jobs
+  - **Temp storage:** `/tmp/dump.jsonl.gz` (Cloud Function temp directory, auto-cleaned)
+  
+**Function signature:**
+```python
+def process_gcs_upload(event, context):
+    """Cloud Function triggered by GCS object finalize.
+    
+    Executes complete ETL pipeline in single run:
+    1. Download JSONL from GCS to /tmp/ (Cloud Function temp storage)
+    2. Parse JSONL into RawJob objects
+    3. Stream to BigQuery raw_jobs table (Stage 1 complete)
+    4. Transform RawJob → CleanedJob objects
+    5. Stream to BigQuery cleaned_jobs table (Stage 2 complete)
+    
+    Args:
+        event (dict): GCS event data
+            - name: File path (e.g., "raw/jobstreet/2025-12-18_210000/dump.jsonl.gz")
+            - bucket: Bucket name ("sg-job-market-data")
+        context: Event metadata (timestamp, event_id, etc.)
+    
+    Returns:
+        str: Success message with row counts
+    """
+```
+
+- [ ] Test locally with `data/raw/jobstreet/` and `data/raw/mcf/` files
+- [ ] Add unit tests: `tests/test_cloud_function.py`
+
+### 1A-alt: Separate Stage Functions (ALTERNATIVE - More Complex)
+**Only use if you need separate concerns or have BigQuery-specific triggers.**
+
+- [ ] Create `etl/stage1_load_raw.py`:
+  - `load_jsonl_from_gcs_to_bq(event, context)`: GCS → raw_jobs
+  - Downloads JSONL from GCS using `utils.gcs.GCSClient.download_file()` to `/tmp/`
+  - Calls `utils.bq.load_jsonl_to_bq()` to stream to BigQuery raw_jobs
+  - Returns row count
+- [ ] Create `etl/stage2_clean_data.py`:
+  - `transform_raw_to_cleaned(event, context)`: raw_jobs → cleaned_jobs
+  - Triggered by Pub/Sub notification from BigQuery (requires additional setup)
+  - Queries raw_jobs for new records
+  - Transforms and streams to cleaned_jobs
+- [ ] Test with local files and add tests: `tests/test_stage1.py`, `tests/test_stage2.py`
+
+**Recommendation:** Use Phase 1A (combined function) unless you have specific reasons to separate.
 
 ### 1B: Stage 2 - Text Cleaning Functions
 - [ ] Create `etl/text_cleaning.py`:
@@ -124,34 +199,93 @@ Develop and test ETL functions locally before Cloud Function deployment.
   ```
 - [ ] Measure performance: Should process 1000 jobs in <10 seconds
 
-## Phase 2: Cloud Function Implementation
+## Phase 2: Cloud Function Deployment
 
-### 2A: Entry Point Function
-- [ ] Create `etl/cloud_function_main.py`:
-  ```python
-  def etl_handler(event, context):
-      """
-      Triggered by GCS finalize event when scraper uploads data.
-      
-      Event data:
-      - bucket: GCS bucket name
-      - name: blob path (e.g., raw/jobstreet/2025-12-17_120000/dump.jsonl.gz)
-      - timeCreated: Upload timestamp
-      
-      Steps:
-      1. Parse event data (bucket, blob path)
-      2. Download JSONL from GCS (with gzip decompression)
-      3. Parse JSONL → list of RawJob dicts
-      4. Apply ETL pipeline (clean, transform, deduplicate)
-      5. Stream to BigQuery using utils.bq.stream_rows_to_bq()
-      6. Log success with row counts
-      7. Handle errors gracefully (log and return 500)
-      """
+**Note:** Most implementation should be done in Phase 1A. This phase focuses on deployment and Cloud-specific features.
+
+### 2A: Deployment Configuration
+- [ ] Create `etl/requirements.txt` (subset of main requirements):
   ```
-- [ ] Add structured logging (Cloud Logging format):
-  - Log event details (file path, size, timestamp)
-  - Log processing stats (rows processed, duration, errors)
-  - Log BigQuery insert results (success count, failed rows)
+  google-cloud-bigquery==3.38.0
+  google-cloud-storage==3.7.0
+  python-dateutil==2.9.0
+  beautifulsoup4==4.14.3
+  langdetect==1.0.9
+  ```
+
+- [ ] Create `etl/main.py` (Cloud Function entry point):
+  ```python
+  """Cloud Function entry point for GCS-triggered ETL pipeline.
+  
+  This file is required by Cloud Functions deployment.
+  The function name MUST match the --entry-point parameter.
+  """
+  
+  from etl.cloud_function_main import process_gcs_upload
+  
+  # Export the handler function
+  # Cloud Functions will call this when GCS event fires
+  def etl_gcs_to_bigquery(event, context):
+      """Entry point called by Cloud Functions.
+      
+      Args:
+          event (dict): GCS event data
+              - bucket: "sg-job-market-data"
+              - name: "raw/jobstreet/2025-12-18_210000/dump.jsonl.gz"
+              - size: File size in bytes
+              - timeCreated: ISO 8601 timestamp
+          context: Cloud Functions context (event_id, timestamp, resource)
+      
+      Returns:
+          str: Success message
+      """
+      return process_gcs_upload(event, context)
+  ```
+
+- [ ] Deploy Cloud Function:
+  ```bash
+  gcloud functions deploy etl-gcs-to-bigquery \
+    --gen2 \
+    --runtime=python313 \
+    --region=asia-southeast1 \
+    --source=. \
+    --entry-point=etl_gcs_to_bigquery \
+    --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
+    --trigger-event-filters="bucket=sg-job-market-data" \
+    --trigger-event-filters-path-pattern="name=raw/*/*.jsonl.gz" \
+    --memory=512MB \
+    --timeout=540s \
+    --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com \
+    --set-env-vars="GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1"
+  ```
+
+### 2B: Structured Logging for Cloud Logging
+- [ ] Enhance logging in `cloud_function_main.py`:
+  ```python
+  import logging
+  import json
+  from datetime import datetime
+  
+  def log_structured(severity: str, message: str, **fields):
+      """Log in Cloud Logging JSON format."""
+      entry = {
+          "severity": severity,
+          "message": message,
+          "timestamp": datetime.utcnow().isoformat(),
+          **fields
+      }
+      print(json.dumps(entry))  # Cloud Functions captures stdout
+  
+  # Usage in function:
+  log_structured("INFO", "Starting ETL", 
+                 file_path=file_path, 
+                 bucket=bucket,
+                 size_bytes=event.get('size'))
+  
+  log_structured("INFO", "ETL complete", 
+                 raw_rows=raw_count,
+                 cleaned_rows=cleaned_count,
+                 duration_seconds=duration)
 
 ### 2B: Error Handling & Retry
 - [ ] Handle common errors:
