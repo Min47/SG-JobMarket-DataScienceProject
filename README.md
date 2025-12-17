@@ -14,6 +14,23 @@ A fully automated, end-to-end data pipeline that:
 
 ---
 
+## Prerequisites
+- Python 3.13
+- Docker (for Cloud Run testing)
+- Google Cloud SDK (`gcloud`)
+- GCP Project with billing enabled
+
+## Environment Variables
+GCP_PROJECT_ID=your-project-id
+BIGQUERY_DATASET_ID=sg_job_market
+GCS_BUCKET=your-bucket-name
+GCP_REGION=asia-southeast1
+SCRAPER_USER_AGENTS="Mozilla/5.0 (...), Mozilla/5.0 (...)"
+GCS_UPLOAD_ENABLED=false  # Set to true for cloud uploads
+LOCAL_RETENTION_DAYS=30
+
+---
+
 ## 📊 Architecture
 
 Cloud Scheduler → Cloud Run (Docker) → GCS → Cloud Functions (ETL) → BigQuery → Vertex AI → FastAPI → Dashboards
@@ -74,9 +91,9 @@ All components are modular, testable, documented, and cloud-ready.
 - Looker Studio integration
 
 
-========================================================
-📁 FOLDER STRUCTURE
-========================================================
+
+## 📁 FOLDER STRUCTURE
+
 /scraper/           → jobsite scrapers, base classes, parsers
 /etl/               → cleaning, transforms, salary parsing
 /nlp/               → embeddings, tokenization, language cleaning
@@ -89,9 +106,8 @@ All components are modular, testable, documented, and cloud-ready.
 /data/raw/          → local raw dumps (gitignored)
 data/processed/     → cleaned datasets (gitignored)
 
-========================================================
-👥 TEAM AGENTS
-========================================================
+
+## 👥 TEAM AGENTS
 
 - Python 3.13 only.
 - Strict PEP8 & typing.
@@ -164,9 +180,8 @@ data/processed/     → cleaned datasets (gitignored)
 - Connects to BigQuery using service account.
 
 
-========================================================
-✔️ Delegation Plan (End-to-End)
-========================================================
+
+## ✔️ Delegation Plan (End-to-End)
 
 This document splits the platform into agent-owned workstreams and defines contracts (schemas, interfaces, handoffs) so implementation can proceed without ambiguity.
 
@@ -183,7 +198,7 @@ Non-negotiables:
 
 ## 1. Workstream Split (Agents, Deliverables)
 
-### A. Project Lead Agent (you + Copilot acting as lead)
+### A. Project Lead Agent
 Deliverables:
 - Folder structure compliance (as in README.md).
 - Schema contract definitions and module boundaries.
@@ -254,7 +269,7 @@ Deliverables:
 7. 🔲 API Agent: implement endpoints backed by BigQuery and models.
 8. 🔲 Dashboard Agent: build Streamlit dashboards and/or Looker Studio config.
 
-## 📝 Development Rules 
+Development Rules:
 - ✅ **Base Infrastructure:** Config, logging, retry, schemas complete
 - 🔲 **BigQuery:** Stub only, needs `stream_rows_to_bq()`, `ensure_dataset()`, `ensure_table()`
 - 🔲 **Cloud Scheduler:** Not configured yet (Phase 5)
@@ -358,11 +373,9 @@ Acceptance criteria:
 8. Dashboard Agent: build Streamlit dashboards and/or Looker Studio config.
 
 
-========================================================
-☁️ CLOUD DEPLOYMENT (PRODUCTION PIPELINE)
-========================================================
+## ☁️ CLOUD DEPLOYMENT (PRODUCTION PIPELINE)
 
-## Architecture Overview
+### Architecture Overview
 ```
 Cloud Scheduler 
     ↓
@@ -415,27 +428,12 @@ Looker Studio / Streamlit Dashboard
 - **API Layer:** FastAPI endpoints for predictions and insights
 - **Dashboard:** Streamlit or Looker Studio for visualization
 
-## Prerequisites
-- Python 3.13
-- Docker (for Cloud Run testing)
-- Google Cloud SDK (`gcloud`)
-- GCP Project with billing enabled
 
-## Environment Variables
-GCP_PROJECT_ID=your-project-id
-BIGQUERY_DATASET_ID=sg_job_market
-GCS_BUCKET=your-bucket-name
-GCP_REGION=asia-southeast1
-SCRAPER_USER_AGENTS="Mozilla/5.0 (...), Mozilla/5.0 (...)"
-GCS_UPLOAD_ENABLED=false  # Set to true for cloud uploads
-LOCAL_RETENTION_DAYS=30
+## 📝 COPILOT
 
-
-========================================================
-📝 COPILOT
-========================================================
-
+```
 Help me build a cloud-ready, production-grade, ML-powered Singapore job market intelligence platform deployable on GCP.
+```
 
 **DEVELOPMENT RULES:**
 - Not a homework project; this is a portfolio-level system.
@@ -446,7 +444,6 @@ Help me build a cloud-ready, production-grade, ML-powered Singapore job market i
 - For any script touching GCP:
   - Use environment variables, never hardcode project IDs.
 - Ensure the entire pipeline is reproducible end-to-end.
-
 
 **WORKFLOW EXPECTATIONS:**
 1. Identify which agent(s) should act.
