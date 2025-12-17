@@ -9,6 +9,7 @@ google-cloud-bigquery==3.38.0
 google-cloud-storage==3.7.0
 tqdm==4.67.1
 python-dotenv==1.2.1
+python-dateutil==2.9.0
 selenium==4.39.0
 spacy==3.8.11
 langdetect==1.0.9
