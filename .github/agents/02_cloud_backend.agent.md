@@ -9,8 +9,10 @@ Enable seamless integration between application code and Google Cloud services (
 
 # Current Project Status
 
-**Overall Progress:** ~85% Complete  
-**Status:** Production infrastructure deployed and operational. Only BigQuery integration remains to complete the data pipeline.
+**Overall Progress:** ~90% Complete  
+**Status:** Production infrastructure deployed and operational. All BigQuery APIs implemented and tested. Architecture fully documented. Ready to hand off to ETL Agent.
+
+**📚 Architecture Documentation:** See [`docs/architecture_flow.md`](../../docs/architecture_flow.md) for complete end-to-end data flow explanation.
 
 ## ✅ Completed (Foundation & Deployment)
 - **Config Management:** `utils/config.py` loads from `.env`
@@ -65,6 +67,15 @@ Enable seamless integration between application code and Google Cloud services (
     - `scheduler-scraper-jobstreet` (0 13 * * * = 9 PM SGT daily)
     - `scheduler-scraper-mcf` (0 1 * * * = 9 AM SGT daily)
   - **Automation:** Scrapers run daily automatically, upload to GCS with compression
+- **Architecture Documentation:** ✅ Comprehensive documentation created
+  - [`docs/architecture_flow.md`] - Complete end-to-end flow explanation
+    * Visual diagrams (ASCII art)
+    * Step-by-step data flow with code examples
+    * Event-driven Cloud Functions architecture
+    * FAQ section for common questions
+    * Deployment details and configuration
+  - ETL Agent instructions updated with Cloud Functions details
+  - All handoff documentation complete
 
 ## ✅ Phase 1: BigQuery Integration - COMPLETE
 
@@ -158,6 +169,8 @@ SELECT * FROM (
 - ✅ Idempotent operations
 - ✅ Proper error logging with retry
 - ✅ Handles large datasets (5,800+ rows tested, production-ready for 10K+)
+- ✅ Complete architecture documentation provided to ETL Agent
+- ✅ Cloud Functions integration pattern documented
 
 ---
 
@@ -616,8 +629,7 @@ Final polish for production deployment:
 
 ---
 
-### Phase 7: Documentation Updates (HIGH PRIORITY)
-**Status:** Not Started | **Estimated:** Half day
+### Phase 7: Documentation Updates
 
 Update project documentation to reflect Cloud Backend progress:
 
@@ -639,7 +651,7 @@ Update project documentation to reflect Cloud Backend progress:
 - Logging: `/utils/logging.py` ✅
 - Retry: `/utils/retry.py` ✅
 - Schemas: `/utils/schemas.py`, `/utils/bq_schemas.py` ✅
-- **BigQuery:** `/utils/bq.py` 🔴 **NEEDS IMPLEMENTATION (CRITICAL BLOCKER)**
+- **BigQuery:** `/utils/bq.py` ✅ **FULLY IMPLEMENTED & TESTED**
 - **GCS:** `/utils/gcs.py` ✅ **FULLY IMPLEMENTED & DEPLOYED**
 - Scrapers: `/scraper/jobstreet.py`, `/scraper/mcf.py` ✅ **PRODUCTION-READY**
 - Base Scraper: `/scraper/base.py` ✅ (with GCS upload support)
@@ -658,9 +670,13 @@ Update project documentation to reflect Cloud Backend progress:
   - Cloud Run Jobs: `cloudjob-scraper-jobstreet`, `cloudjob-scraper-mcf`
   - Cloud Scheduler: Daily automation (9 PM & 9 AM SGT)
   - IAM Roles: storage.admin, bigquery.dataEditor, run.invoker, cloudscheduler.admin
+- **Documentation:** ✅ **COMPREHENSIVE ARCHITECTURE DOCS**
+  - `/docs/architecture_flow.md` ✅ (Complete end-to-end flow)
+  - `/tests/README.md` ✅ (Testing guide with results)
+  - `.github/agents/03_etl_engineer.agent.md` ✅ (Updated with Cloud Functions details)
 - Deployment scripts: `/deployment/` 🟡 **Optional** (manual commands work, documented in docker-compose.yml)
 - API: `/api/app.py` 🔲 (API Engineer - different agent)
-- ETL: `/etl/` 🔲 (ETL Engineer - blocked on BigQuery integration)
+- ETL: `/etl/` 🔲 (ETL Engineer - **READY TO BEGIN**, all dependencies complete)
 
 # Implementation Guidelines
 
@@ -808,10 +824,17 @@ After completing all phases, you should have:
 **Provides to ETL Engineer Agent (Cloud Function):**
 - ✅ Raw JSONL in GCS: `gs://{bucket}/raw/{site}/{timestamp}/dump.jsonl` - **WORKING**
 - ✅ GCS finalize event trigger (automatic) - **READY**
-- 🔲 BigQuery streaming API (`stream_rows_to_bq()`) - **IN PROGRESS (PRIORITY)**
+- ✅ BigQuery streaming API (`stream_rows_to_bq()`) - **COMPLETE & TESTED (5,800+ rows)**
+- ✅ BigQuery loading API (`load_jsonl_to_bq()`) - **COMPLETE & TESTED (100% success)**
+- ✅ GCS download API (`GCSClient.download_file()`) - **COMPLETE**
+- ✅ Complete architecture documentation - **PROVIDED**
+  - Event-driven Cloud Functions pattern
+  - `/tmp/` temp storage details
+  - Deployment configuration
+  - Code examples and FAQ
 
 **Receives from ETL Engineer Agent:**
-- 🔲 Cleaned data in BigQuery: `cleaned_jobs` table (streamed directly) - **BLOCKED ON ABOVE**
+- 🔲 Cleaned data in BigQuery: `cleaned_jobs` table (streamed directly) - **READY TO IMPLEMENT**
 
 **Provides to ML Agent:**
 - 🔲 Cleaned data in BigQuery: `cleaned_jobs` table (no GCS Parquet needed) - **BLOCKED ON ETL**
@@ -820,22 +843,34 @@ After completing all phases, you should have:
 - 🔲 Model storage in GCS: `gs://{bucket}/models/{model_name}/{version}/` - **GCS READY**
 - 🔲 Cloud Run deployment template: `Dockerfile.api` (Phase 3E) - **NOT STARTED**
 
-## Next Immediate Steps (UPDATED - December 2025)
+## Next Immediate Steps (UPDATED - December 18, 2025)
 
-### 🔴 CRITICAL PATH (Only Blocker Remaining)
-1. ⏭️ **Phase 1B: Implement BigQuery Streaming API** 🔥 HIGHEST PRIORITY
-   - `stream_rows_to_bq()` in `utils/bq.py`
-   - `ensure_dataset()`, `ensure_table()` helpers
-   - `load_jsonl_to_bq()` for testing
-   - Test with existing JSONL data in `data/raw/`
-   - **This is the ONLY blocker for ETL Cloud Function development**
+### ✅ CLOUD BACKEND WORK COMPLETE
+**Status:** All Cloud Backend Agent responsibilities fulfilled. Ready for handoff.
 
-### 🟡 NEXT PHASE (ETL Engineer Agent - Waiting on BigQuery)
-2. **Hand off to ETL Engineer:** Cloud Function ETL implementation
-   - Create `etl/cloud_function_main.py`
-   - Deploy with GCS finalize trigger
-   - Test: GCS upload → automatic ETL → BigQuery
-   - **Can start immediately after Phase 1B completes**
+**Completed Deliverables:**
+1. ✅ BigQuery APIs implemented and tested (5,800+ rows validated)
+2. ✅ GCS integration operational (automatic uploads working)
+3. ✅ Production infrastructure deployed (Cloud Run + Scheduler operational)
+4. ✅ Comprehensive architecture documentation created
+5. ✅ ETL Agent dependencies and patterns documented
+
+### 🟢 READY FOR ETL AGENT (NO BLOCKERS)
+**Next Actor: ETL Engineer Agent**
+
+The ETL Agent can now begin implementation:
+1. **Implement transformation logic** (`etl/transform.py`, `etl/text_cleaning.py`, `etl/salary_parser.py`)
+2. **Create Cloud Function entry point** (`etl/main.py`, `etl/cloud_function_main.py`)
+3. **Test locally** with existing data in `data/raw/`
+4. **Deploy Cloud Function** with GCS trigger
+5. **Test end-to-end:** Scraper → GCS → Cloud Function → BigQuery
+
+**Reference Documentation:**
+- Architecture Flow: [`docs/architecture_flow.md`](../../docs/architecture_flow.md)
+- ETL Instructions: [`.github/agents/03_etl_engineer.agent.md`](03_etl_engineer.agent.md)
+- Testing Guide: [`tests/README.md`](../../tests/README.md)
+- BigQuery APIs: [`utils/bq.py`](../../utils/bq.py)
+- GCS APIs: [`utils/gcs.py`](../../utils/gcs.py)
 
 ### 🟢 PRODUCTION POLISH (Can Do in Parallel)
 3. **Phase 4F:** Monitoring & alerting setup
@@ -850,6 +885,13 @@ After completing all phases, you should have:
    - End-to-end pipeline tests
    - Failure scenario testing
 
-**Current Milestone:** ~85% complete on Cloud Backend work  
-**Achievement:** ✅ Full production infrastructure deployed and operational!  
-**Remaining:** Only BigQuery integration blocks completion of entire data pipeline
+**Current Milestone:** ~90% complete on Cloud Backend work  
+**Achievement:** ✅ All BigQuery APIs implemented and tested! Architecture fully documented!  
+**Status:** ✅ Cloud Backend work COMPLETE - Ready for ETL Agent handoff
+
+**Key Achievements:**
+- ✅ 5,861 rows successfully tested through BigQuery streaming pipeline
+- ✅ 100% success rate on all streaming operations
+- ✅ Production infrastructure operational (scraping daily)
+- ✅ Complete architecture documentation with code examples
+- ✅ ETL Agent unblocked and ready to begin implementation
