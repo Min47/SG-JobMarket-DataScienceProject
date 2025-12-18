@@ -12,7 +12,7 @@ Enable seamless integration between application code and Google Cloud services (
 **Overall Progress:** ~90% Complete  
 **Status:** Production infrastructure deployed and operational. All BigQuery APIs implemented and tested. Architecture fully documented. Ready to hand off to ETL Agent.
 
-**📚 Architecture Documentation:** See [`docs/architecture_flow.md`](../../docs/architecture_flow.md) for complete end-to-end data flow explanation.
+**📚 Architecture Documentation:** See [`docs/architecture_flow.md`] for complete end-to-end data flow explanation.
 
 ## ✅ Completed (Foundation & Deployment)
 - **Config Management:** `utils/config.py` loads from `.env`
@@ -866,7 +866,7 @@ The ETL Agent can now begin implementation:
 5. **Test end-to-end:** Scraper → GCS → Cloud Function → BigQuery
 
 **Reference Documentation:**
-- Architecture Flow: [`docs/architecture_flow.md`](../../docs/architecture_flow.md)
+- Architecture Flow: [`docs/architecture_flow.md`]
 - ETL Instructions: [`.github/agents/03_etl_engineer.agent.md`](03_etl_engineer.agent.md)
 - Testing Guide: [`tests/README.md`](../../tests/README.md)
 - BigQuery APIs: [`utils/bq.py`](../../utils/bq.py)
