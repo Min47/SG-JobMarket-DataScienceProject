@@ -14,3 +14,7 @@ selenium==4.39.0
 spacy==3.8.11
 langdetect==1.0.9
 wheel==0.45.1
+langchain==1.2.0
+langgraph==langgraph
+mcp==1.24.0
+google-cloud-aiplatform==1.132.0

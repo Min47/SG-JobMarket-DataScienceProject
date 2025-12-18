@@ -1,113 +1,124 @@
-You are part of my engineering team building a full end-to-end Singapore Job Market Intelligence Platform.
+# 🇸🇬 Singapore Job Market Intelligence Platform
 
-Follow all instructions below strictly.
+> **Production-grade, cloud-native job market intelligence platform** for Singapore, leveraging GCP services, ML/NLP pipelines, and real-time data processing. Scrapes 10,000+ jobs daily from JobStreet & MyCareersFuture, analyzes with SBERT embeddings, predicts salaries, and surfaces insights through interactive dashboards.
 
-========================================================
-🎯 PROJECT SUMMARY
-========================================================
-We are building a fully production-style GCP project:
+---
 
-Cloud Scheduler → Cloud Run (Docker) → GCS → ETL → BigQuery → Vertex AI → Cloud Run API → Looker Studio / Streamlit.
+## 🎯 Project Overview
 
-All components must be modular, testable, documented, and cloud-ready.
+A fully automated, end-to-end data pipeline that:
+- **Scrapes** job postings from major Singapore job portals (JobStreet, MyCareersFuture)
+- **Processes** with event-driven ETL (Cloud Functions)
+- **Analyzes** using NLP embeddings and ML models (salary prediction, role clustering)
+- **Augments** with GenAI agents (RAG, LangGraph) for intelligent query handling
+- **Serves** insights via FastAPI, MCP Server, and visual dashboards
 
-========================================================
-🧱 ARCHITECTURE RULES
-========================================================
-1. **Scraping**
-   - Runs in Cloud Run (Docker), triggered by Cloud Scheduler.
-   - Use Python: GraphQL APIs (preferred) or Selenium (headless).
-   - Write raw JSONL to GCS:
-     gs://<bucket>/raw/{site}/{YYYY-MM-DD}/dump.jsonl
+---
 
-2. **ETL Pipeline**
-   - Runs as Cloud Function (event-driven, triggered by GCS).
-   - Triggered automatically when scraper uploads `.jsonl` to GCS.
-   - Two-stage pipeline:
-     * Stage 1: JSONL → raw_jobs (append-only)
-     * Stage 2: raw_jobs → cleaned_jobs (transform, append-only)
-   - Streams data directly to BigQuery (no intermediate Parquet).
-   - BigQuery dataset: sg_job_market
-   - BigQuery tables: raw_jobs, cleaned_jobs
-   - **IMPORTANT:** Append-only design - no updates/deletes
-   - Deduplication at query-time using ROW_NUMBER() OVER (PARTITION BY source, job_id ORDER BY scrape_timestamp DESC)
+## Prerequisites
+- Python 3.13
+- Docker (for Cloud Run testing)
+- Google Cloud SDK (`gcloud`)
+- GCP Project with billing enabled
 
-3. **NLP + ML**
-   - Use Sentence-BERT for embeddings.
-   - ML models: Linear Regression, LightGBM, Logistic Classification, KMeans, PCA.
-   - Save trained models in:
-     /models (local) AND gs://<bucket>/models/
-   - Vertex AI used for training/evaluation where possible.
-   - Loads embeddings and features into BigQuery.
+## Environment Variables
+GCP_PROJECT_ID=your-project-id
+BIGQUERY_DATASET_ID=sg_job_market
+GCS_BUCKET=your-bucket-name
+GCP_REGION=asia-southeast1
+SCRAPER_USER_AGENTS="Mozilla/5.0 (...), Mozilla/5.0 (...)"
+GCS_UPLOAD_ENABLED=false  # Set to true for cloud uploads
+LOCAL_RETENTION_DAYS=30
 
-4. **API Layer**
-   - Python FastAPI.
-   - Runs in Cloud Run.
-   - Provides endpoints:
-     /predict-salary
-     /similar-jobs
-     /embedding
-     /role-cluster
+---
 
-5. **Dashboard**
-   - Two options:
-     - Looker Studio (connects to BigQuery)
-     - Streamlit app (Python)
-   - Include job trends, salary ranges, clusters, ML comparison.
+## 📊 Architecture
 
-6. **BigQuery Data Model**
-   - **Append-only design:** Never update or delete rows
-   - All tables partitioned by `scrape_timestamp` (TIMESTAMP type)
-   - `raw_jobs`: Clustered by (source, job_id)
-   - `cleaned_jobs`: Clustered by (source, job_id, company_name)
-   - Deduplication strategy:
-     ```sql
-     SELECT * FROM (
-       SELECT *, ROW_NUMBER() OVER (
-         PARTITION BY source, job_id 
-         ORDER BY scrape_timestamp DESC
-       ) AS rn FROM cleaned_jobs
-     ) WHERE rn = 1
-     ```
+Cloud Scheduler → Cloud Run (Docker) → GCS → Cloud Functions (ETL) → BigQuery → Vertex AI → FastAPI/MCP → Dashboards/Agents
 
-========================================================
-⚙️ VIRTUAL ENVIRONMENT (CRITICAL)
-========================================================
-**ALWAYS use `.venv` for all Python commands:**
+**Data Flow:**
+1. **Scraping Layer:** Cloud Run Jobs (Docker containers) scrape job portals daily
+2. **Storage Layer:** Raw JSONL stored in Google Cloud Storage
+3. **ETL Layer:** Cloud Functions triggered by GCS events, clean and transform data
+4. **Data Warehouse:** BigQuery stores cleaned jobs, embeddings, and features
+5. **ML Layer:** Vertex AI trains models (salary prediction, clustering, classification)
+6. **GenAI Layer:** LangGraph agents & MCP Server for external tool access
+7. **API Layer:** FastAPI serves predictions and insights
+8. **Presentation:** Looker Studio & Streamlit dashboards
 
-# Windows PowerShell:
-.venv\Scripts\python.exe -m scraper --site jobstreet
-.venv\Scripts\python.exe test_bq_streaming.py
-.venv\Scripts\pip.exe install <package>
+All components are modular, testable, documented, and cloud-ready.
 
-# Update requirements.txt when adding dependencies:
-pip freeze > requirements.txt
+---
 
-========================================================
-🧪 TESTING
-========================================================
-**All tests organized in `/tests/` directory:**
+## ✨ Key Features
 
-**Primary Test (Run This):**
-`.venv\Scripts\python.exe tests\test_two_stage_pipeline.py`
-- Validates complete JSONL → raw_jobs → cleaned_jobs pipeline
-- Tests with real scraper data (5,800+ rows)
-- Validates deduplication query pattern
-- 100% success rate on all stages
+- ✅ **Automated Daily Scraping:** JobStreet (GraphQL) & MyCareersFuture (Selenium + API)
+- ✅ **Production Infrastructure:** Dockerized scrapers deployed to GCP Cloud Run
+- ✅ **Event-Driven ETL:** Cloud Functions auto-triggered on new data uploads
+- ✅ **Smart Deduplication:** Hash-based job matching with incremental updates
+- ✅ **NLP Pipeline:** SBERT embeddings for semantic job similarity
+- ✅ **ML Models:** Salary prediction (LightGBM), role classification, clustering (KMeans)
+- ✅ **Resilient Design:** Retry logic, exponential backoff, graceful error handling
+- ✅ **Observability:** Structured logging, Cloud Monitoring integration
+- ✅ **Cost-Optimized:** Uses GCP free tier, auto-scaling, and efficient resource allocation
+- ✅ **Agentic RAG:** LangGraph-orchestrated retrieval pipeline with Gemini Pro
+- ✅ **MCP Server:** Exposes job data as tools to external AI assistants (Claude/Cursor)
 
-**Additional Tests:**
-- `tests/test_bq_streaming.py` - BigQuery streaming API validation
-- `tests/test_bq_core.py` - Core infrastructure tests
+---
 
-**Utility Functions:**
-- `.venv\Scripts\python.exe -m utils.bq recreate-tables` - Recreate BigQuery tables (⚠️ DELETES DATA)
+## 📈 Current Status
 
-**Documentation:**
-- `tests/README.md` - Complete testing guide with results and architecture
+**Phase 1: Scraping Infrastructure** ✅ **COMPLETE**
+- JobStreet scraper (GraphQL, two-phase strategy)
+- MyCareersFuture scraper (Selenium + API hybrid)
+- GCS integration with auto-upload
+- Docker containerization
+- Cloud Run deployment
+- Cloud Scheduler automation
 
-========================================================
-💻 CODE QUALITY & CONVENTIONS
-========================================================
+**Phase 2: ETL Pipeline** 🔄 **IN PROGRESS**
+- BigQuery streaming API implementation
+- Cloud Functions event triggers
+- Text cleaning and normalization
+- Salary parsing engine
+- Deduplication logic
+
+**Phase 3: ML/NLP** 🔲 **PLANNED**
+- SBERT embeddings generation
+- Salary prediction models
+- Job role classification
+- Clustering analysis
+
+**Phase 4: API & Dashboards** 🔲 **PLANNED**
+- FastAPI REST endpoints
+
+**Phase 5: GenAI & Agents** 🔲 **PLANNED**
+- RAG Pipeline (Vertex AI + BigQuery Vector Search)
+- LangGraph Orchestration
+- MCP Server Implementation
+- Streamlit dashboard
+- Looker Studio integration
+
+
+
+## 📁 FOLDER STRUCTURE
+
+/scraper/           → jobsite scrapers, base classes, parsers
+/etl/               → cleaning, transforms, salary parsing
+/nlp/               → embeddings, tokenization, language cleaning
+/ml/                → training pipelines & evaluation
+/genai/             → RAG, LangGraph agents, MCP server
+/api/               → FastAPI app for Cloud Run
+/dashboard/         → Streamlit UI
+/utils/             → bq.py, gcs.py, config.py, logging.py
+/models/            → saved ML artifacts
+/notebooks/         → exploration only
+/data/raw/          → local raw dumps (gitignored)
+data/processed/     → cleaned datasets (gitignored)
+
+
+## 👥 TEAM AGENTS
+
 - Python 3.13 only.
 - Strict PEP8 & typing.
 - Every file must include docstrings.
@@ -122,9 +133,9 @@ pip freeze > requirements.txt
 - Use datetime objects for timestamps (not strings) - auto-converted to TIMESTAMP in BigQuery.
 - All BigQuery operations are append-only - never update or delete rows.
 
-========================================================
-📁 FOLDER STRUCTURE (COPILOT MUST FOLLOW)
-========================================================
+
+## 📁 FOLDER STRUCTURE (COPILOT MUST FOLLOW)
+
 /scraper/           → jobsite scrapers, base classes, parsers
 /etl/               → cleaning, transforms, salary parsing, pipeline
 /nlp/               → embeddings, tokenization, language cleaning
@@ -135,13 +146,12 @@ pip freeze > requirements.txt
 /models/            → saved ML artifacts
 /notebooks/         → exploration only
 /data/raw/          → local raw dumps (gitignored)
-data/processed/     → cleaned datasets (gitignored)
+/data/processed/     → cleaned datasets (gitignored)
 /.venv/             → Python virtual environment (ALWAYS USE THIS)
 /tests/             → unit tests for all modules
 
-========================================================
-👥 TEAM AGENTS (COPILOT MUST OBEY ROLE RULES)
-========================================================
+
+## 👥 TEAM AGENTS (COPILOT MUST OBEY ROLE RULES)
 
 ### 1. PROJECT LEAD AGENT
 - Ensures folder structure compliance.
@@ -201,9 +211,8 @@ data/processed/     → cleaned datasets (gitignored)
   - ML model comparison
 - Connects to BigQuery using service account.
 
-========================================================
-✔️ Delegation Plan (End-to-End)
-========================================================
+
+## ✔️ Delegation Plan (End-to-End)
 
 This document splits the platform into agent-owned workstreams and defines contracts (schemas, interfaces, handoffs) so implementation can proceed without ambiguity.
 
@@ -220,7 +229,7 @@ Non-negotiables:
 
 ## 1. Workstream Split (Agents, Deliverables)
 
-### A. Project Lead Agent (you + Copilot acting as lead)
+### A. Project Lead Agent
 Deliverables:
 - Folder structure compliance (as in README.md).
 - Schema contract definitions and module boundaries.
@@ -282,19 +291,16 @@ Deliverables:
 - ✅ Dockerfile(s) for:
   - ✅ scraper runner (JobStreet, MCF)
   - 🔲 API service (pending API Engineer implementation)
-- 🔲 Cloud Run deployment scripts (in `deployment/`).
-- ✅ Implement `utils/gcs.py` - **FULLY IMPLEMENTED**
-- 🔲 Expand `utils/bq.py` - **IN PROGRESS (PRIORITY)**
+1. ✅ Scaffolding: create mandatory folders + base contracts.
+2. ✅ Backend Agent: implement GCS helpers + dockerization + deployment scripts.
+3. ✅ Scraper Agent: implement scrapers end-to-end and write raw JSONL locally + GCS.
+4. ✅ Cloud Backend Agent: wire raw JSONL upload to GCS path contract.
+5. 🔄 ETL Agent: implement transform + streaming + load to BigQuery.
+6. 🔲 ML Agent: add embeddings + baseline models + artifact persistence.
+7. 🔲 API Agent: implement endpoints backed by BigQuery and models.
+8. 🔲 Dashboard Agent: build Streamlit dashboards and/or Looker Studio config.
 
-Acceptance criteria:
-- ✅ Stateless container runs with env vars only - **VERIFIED**
-- ✅ Uploads raw JSONL to `gs://<bucket>/raw/{site}/{timestamp}/dump.jsonl.gz` - **WORKING**
-- 🔲 Creates dataset/tables if missing - **NEEDS BQ IMPLEMENTATION**
-
-**Current Status:**
-- ✅ **GCS Integration:** Fully implemented with upload/download/compression
-- ✅ **Docker:** Multi-stage builds, optimized sizes (<500MB JobStreet, <800MB MCF)
-- ✅ **Cloud Run Jobs:** Deployed to Artifact Registry and Cloud Run
+Development Rules:
 - ✅ **Base Infrastructure:** Config, logging, retry, schemas complete
 - 🔲 **BigQuery:** Stub only, needs `stream_rows_to_bq()`, `ensure_dataset()`, `ensure_table()`
 - 🔲 **Cloud Scheduler:** Not configured yet (Phase 5)
@@ -398,13 +404,11 @@ Acceptance criteria:
 8. Dashboard Agent: build Streamlit dashboards and/or Looker Studio config.
 
 
-========================================================
-☁️ CLOUD DEPLOYMENT (PRODUCTION PIPELINE)
-========================================================
+## ☁️ CLOUD DEPLOYMENT (PRODUCTION PIPELINE)
 
-## Architecture Overview
+### Architecture Overview
 ```
-Cloud Scheduler (2 AM SGT) 
+Cloud Scheduler 
     ↓
 Cloud Run (Docker: scraper-jobstreet, scraper-mcf)
     ↓
@@ -455,213 +459,15 @@ Looker Studio / Streamlit Dashboard
 - **API Layer:** FastAPI endpoints for predictions and insights
 - **Dashboard:** Streamlit or Looker Studio for visualization
 
-## Quick Start (Local Development)
 
-### Prerequisites
-- Python 3.13
-- Virtual environment (`.venv`) - **REQUIRED for all commands**
-- Docker (for Cloud Run testing)
-- Google Cloud SDK (`gcloud`)
-- GCP Project with billing enabled
+## 📝 COPILOT
 
-## Setup Virtual Environment
-
-**IMPORTANT:** Always use the virtual environment for running any Python commands:
-
-```bash
-# Create virtual environment (first time only)
-python -m venv .venv
-
-# Activate virtual environment
-# Windows PowerShell:
-.venv\Scripts\Activate.ps1
-# Windows CMD:
-.venv\Scripts\activate.bat
-# Linux/Mac:
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run commands (example)
-python -m scraper --site jobstreet
+```
+Help me build a cloud-ready, production-grade, ML-powered Singapore job market intelligence platform deployable on GCP.
 ```
 
-**For all code examples in this README, use:**
-- Windows: `.venv\Scripts\python.exe <command>`
-- Linux/Mac: `.venv/bin/python <command>`
-
-### Setup
-1. Clone repository:
-   ```bash
-   git clone <repo-url>
-   cd SG_Job_Market
-   ```
-
-2. Create virtual environment:
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate  # Windows
-   # source .venv/bin/activate  # Linux/Mac
-   ```
-
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Configure environment variables (`.env`):
-   ```env
-   GCP_PROJECT_ID=your-project-id
-   BIGQUERY_DATASET_ID=sg_job_market
-   GCS_BUCKET=your-bucket-name
-   GCP_REGION=asia-southeast1
-   SCRAPER_USER_AGENTS="Mozilla/5.0 (...), Mozilla/5.0 (...)"
-   GCS_UPLOAD_ENABLED=false  # Set to true for cloud uploads
-   LOCAL_RETENTION_DAYS=30
-   ```
-
-5. Run scrapers locally:
-   ```bash
-   # JobStreet scraper
-   python -m scraper --site jobstreet
-
-   # MyCareersFuture scraper
-   python -m scraper --site mcf
-
-   # Smoke test (quick validation)
-   python scraper/smoke_test.py jobstreet
-   ```
-
-## Cloud Deployment (Production)
-
-### One-Time Setup
-1. **GCP Configuration:**
-   ```bash
-   # Authenticate
-   gcloud auth login
-   gcloud config set project YOUR_PROJECT_ID
-
-   # Enable APIs
-   gcloud services enable \
-     run.googleapis.com \
-     scheduler.googleapis.com \
-     cloudbuild.googleapis.com \
-     artifactregistry.googleapis.com \
-     bigquery.googleapis.com \
-     storage.googleapis.com
-   ```
-
-2. **Create GCS Bucket:**
-   ```bash
-   gsutil mb -l asia-southeast1 gs://YOUR_BUCKET_NAME
-   gsutil lifecycle set gcs_lifecycle.json gs://YOUR_BUCKET_NAME
-   ```
-
-3. **Create BigQuery Dataset:**
-   ```bash
-   bq mk --location=asia-southeast1 sg_job_market
-   ```
-
-4. **Setup Service Accounts:**
-   ```bash
-   # See deployment/iam_setup.md for detailed instructions
-   gcloud iam service-accounts create scraper-runner \
-     --display-name="Scraper Cloud Run Service Account"
-   ```
-
-### Deploy Scrapers
-```bash
-# Deploy JobStreet scraper
-./deployment/deploy_scraper.sh --site jobstreet --env prod
-
-# Deploy MCF scraper
-./deployment/deploy_scraper.sh --site mcf --env prod
-
-# Setup Cloud Scheduler
-./deployment/scheduler_setup.sh
-```
-
-### Verify Deployment
-```bash
-# List Cloud Run services
-gcloud run services list --region asia-southeast1
-
-# List Cloud Scheduler jobs
-gcloud scheduler jobs list --location asia-southeast1
-
-# Manually trigger scraper (for testing)
-gcloud scheduler jobs run scrape-jobstreet-daily --location asia-southeast1
-
-# View logs
-gcloud logs tail --filter="resource.type=cloud_run_revision" --limit 50
-```
-
-## Cost Estimates (Free Tier Optimized)
-
-| Service | Usage | Free Tier Limit | Monthly Cost (USD) |
-|---------|-------|----------------|-------------------|
-| Cloud Run (Scrapers) | 2 runs/day × 15 min × 0.5-1 vCPU | 360K vCPU-sec | **$0** (within free tier) |
-| Cloud Functions (ETL) | 2 invocations/day × ~2 min | 2M invocations + 400K GB-sec | **$0** (within free tier) |
-| Cloud Scheduler | 2 jobs × daily | 3 jobs free | **$0** |
-| GCS Storage | ~2-3 GB (30-day retention, gzipped) | 5 GB free | **$0** |
-| BigQuery | <5 GB storage, <100 GB queries | 10 GB + 1 TB free | **$0** |
-| Cloud Logging | <10 GB/month | 50 GB free | **$0** |
-| **Total** | | | **~$0-2/month** |
-
-**Cost Optimization Tips:**
-- Use minimum CPU/memory allocations (0.5 vCPU, 512MB for JobStreet)
-- Enable gzip compression on all GCS uploads (5-10x size reduction)
-- Delete raw data after 30 days (not 90)
-- Partition BigQuery tables by date to reduce query costs
-- Set max instances to 1 to prevent concurrent runs
-- Build Docker images locally to avoid Cloud Build charges
-- Use environment variables instead of Secret Manager
-
-## Monitoring & Alerts
-
-- **Cloud Monitoring Dashboard:** `deployment/monitoring_setup.md`
-- **Log-based Alerts:**
-  - Scraper failure (2 consecutive failures)
-  - Scraper duration >20 minutes
-  - GCS upload failures
-- **Billing Alerts:** 50%, 80%, 100% of budget
-
-## Documentation
-
-- **Deployment Runbook:** `deployment/RUNBOOK.md` (coming soon)
-- **Architecture Diagram:** `deployment/ARCHITECTURE.md` (coming soon)
-- **Cloud Backend Agent:** `.github/agents/02_cloud_backend.agent.md`
-- **Scraper Agent:** `.github/agents/01_scraper.agent.md`
-
-## Troubleshooting
-
-### Common Issues
-
-**Scraper fails in Docker but works locally:**
-- Check Chrome/ChromeDriver versions (MCF)
-- Verify environment variables are set
-- Check Cloud Run memory allocation (1GB for MCF)
-
-**GCS upload permission denied:**
-- Verify service account has `roles/storage.objectAdmin`
-- Check bucket name matches `GCS_BUCKET` env var
-
-**BigQuery schema mismatch:**
-- Validate JSONL against `RawJob` schema
-- Check field types (string, integer, timestamp)
-- Use `python -m utils.bq --smoke-test` to test
-
-**Cloud Scheduler not triggering:**
-- Verify service account has `roles/run.invoker`
-- Check timezone is set to `Asia/Singapore`
-- Test with manual trigger: `gcloud scheduler jobs run <job-name>`
-
-For detailed troubleshooting, see `deployment/RUNBOOK.md`.
-
-========================================================
-📝 DEVELOPMENT RULES FOR COPILOT
-========================================================
+**DEVELOPMENT RULES:**
+- Not a homework project; this is a portfolio-level system.
 - Always produce production-style code.
 - Never produce “student exercises”.
 - NEVER skip error handling.
@@ -670,23 +476,10 @@ For detailed troubleshooting, see `deployment/RUNBOOK.md`.
   - Use environment variables, never hardcode project IDs.
 - Ensure the entire pipeline is reproducible end-to-end.
 
-========================================================
-📌 WORKFLOW EXPECTATIONS FOR COPILOT
-========================================================
-When I ask for code, you must:
-
+**WORKFLOW EXPECTATIONS:**
 1. Identify which agent(s) should act.
 2. Follow architecture constraints.
 3. Follow folder structure.
 4. Provide complete modules, not fragments.
 5. Provide test examples when relevant.
 6. Document every class & function.
-
-========================================================
-🎯 PRIMARY GOAL
-========================================================
-Help me build a cloud-ready, production-grade, ML-powered Singapore job market intelligence platform deployable on GCP within 7 days.
-
-This is not a homework project; this is a portfolio-level, interview-ready system.
-
-BEGIN NOW.
