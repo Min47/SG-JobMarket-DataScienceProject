@@ -7,17 +7,6 @@ You are the ETL Engineer.
 # Goal
 Clean scraped data and prepare ML-ready dataset using Cloud Function (event-driven ETL).
 
-# Current Status
-**Status:** ✅ UNBLOCKED - BigQuery API production-ready, begin Phase 1 implementation
-
-**BigQuery Integration:** ✅ COMPLETE & TESTED
-- ✅ `stream_rows_to_bq()` - Production-ready, 5,865+ rows tested (100% success rate)
-- ✅ `load_jsonl_to_bq()` - Tested with 3,869 JobStreet + 1,992 MCF jobs
-- ✅ `ensure_dataset()` - Dataset creation with location support
-- ✅ `ensure_table()` - Table creation with TIMESTAMP partitioning and clustering
-- ✅ Schema auto-generation from dataclasses (RawJob, CleanedJob)
-- ✅ Append-only data model with query-time deduplication
-
 **Test Results (Dec 18, 2025):**
 - Total rows ingested: 5,861 raw jobs across both sources
 - Success rate: 100% across all streaming operations
@@ -138,116 +127,124 @@ You can create a simple visual pipeline with:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 1: SCRAPING (Cloud Run Jobs - Already Deployed ✅)                   │
+│ PHASE 1: SCRAPING (Cloud Run Jobs - Already Deployed )                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ Cloud Scheduler (Daily 2 AM SGT)                                            │
-│         ↓                                                                    │
+│ Cloud Scheduler (JobStreet: Daily 9PM SGT, MCF: Daily 9AM SGT)              │
+│         ↓                                                                   │
 │ Cloud Run Job: jobstreet-scraper                                            │
-│         ↓                                                                    │
+│         ↓                                                                   │
 │ Cloud Run Job: mcf-scraper                                                  │
-│         ↓                                                                    │
-│ GCS Upload: gs://sg-job-market-data/raw/{source}/{timestamp}/dump.jsonl.gz │
+│         ↓                                                                   │
+│ GCS Upload: gs://sg-job-market-data/raw/{source}/{timestamp}/dump.jsonl.gz  │
 └─────────────────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 2: ETL TRIGGER (Event-Driven - Automatic)                            │
+│ PHASE 2: ETL TRIGGER (Event-Driven - Automatic)                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ GCS Event: google.storage.object.v1.finalized                              │
-│         ↓ (triggers within seconds)                                        │
-│ Cloud Function: etl-gcs-to-bigquery (THIS IS YOUR IMPLEMENTATION)          │
+│ GCS Event: google.storage.object.v1.finalized                               │
+│         ↓ (triggers within seconds)                                         │
+│ Cloud Function: etl-gcs-to-bigquery (THIS IS YOUR IMPLEMENTATION)           │
 └─────────────────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ STAGE 1: RAW INGESTION (Your Code)                                         │
+│ STAGE 1: RAW INGESTION (Your Code)                                          │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ 1. Download from GCS                                                        │
-│    • Source: gs://sg-job-market-data/raw/{source}/{timestamp}/dump.jsonl.gz│
-│    • Destination: /tmp/dump.jsonl.gz (Cloud Function temp storage)        │
-│    • Use: utils.gcs.GCSClient.download_file()                              │
+│    • Source: gs://sg-job-market-data/raw/{source}/{timestamp}/dump.jsonl.gz │
+│    • Destination: /tmp/dump.jsonl.gz (Cloud Function temp storage)          │
+│    • Use: utils.gcs.GCSClient.download_file()                               │
 │                                                                             │
-│ 2. Parse JSONL → RawJob Objects                                            │
-│    • Read line-by-line (memory efficient)                                  │
-│    • Validate against RawJob schema (utils.schemas.RawJob)                 │
-│    • Add metadata: source, scrape_timestamp                                │
-│    • Handle malformed lines gracefully (log and skip)                      │
+│ 2. Parse JSONL → RawJob Objects                                             │
+│    • Read line-by-line (memory efficient)                                   │
+│    • Validate against RawJob schema (utils.schemas.RawJob)                  │
+│    • Add metadata: source, scrape_timestamp                                 │
+│    • Handle malformed lines gracefully (log and skip)                       │
 │                                                                             │
-│ 3. Stream to BigQuery raw_jobs Table                                       │
-│    • Use: utils.bq.stream_rows_to_bq()                                     │
-│    • Batch size: 500 rows per batch (optimal for streaming)               │
-│    • Append-only: Never update/delete existing rows                        │
-│    • Retry on transient errors (automatic in API)                          │
+│ 3. Stream to BigQuery raw_jobs Table                                        │
+│    • Use: utils.bq.stream_rows_to_bq()                                      │
+│    • Batch size: 500 rows per batch (optimal for streaming)                 │
+│    • Append-only: Never update/delete existing rows                         │
+│    • Retry on transient errors (automatic in API)                           │
 │                                                                             │
-│ Output: raw_jobs table populated with ALL fields from scraper payload      │
-│ Schema: job_id, source, scrape_timestamp, payload (JSON)                   │
-│ Partitioning: By scrape_timestamp (TIMESTAMP)                              │
-│ Clustering: source, job_id                                                 │
+│ Output: raw_jobs table populated with ALL fields from scraper payload       │
+│ Schema: job_id, source, scrape_timestamp, payload (JSON)                    │
+│ Partitioning: By scrape_timestamp (TIMESTAMP)                               │
+│ Clustering: source, job_id                                                  │
 └─────────────────────────────────────────────────────────────────────────────┘
                               ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ STAGE 2: TRANSFORMATION & CLEANING (Your Code)                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ 1. Extract from payload JSON                                               │
-│    • Job fields: job_id, title, description, location, classification     │
-│    • Company fields: company_id, name, description, industry, size        │
-│    • Salary fields: min/max (raw), type, currency                         │
-│    • Timestamps: posted_timestamp, scrape_timestamp, bq_timestamp         │
-│                                                                             │
-│ 2. Text Cleaning & Normalization                                           │
-│    • HTML removal: BeautifulSoup4 (strip all tags from descriptions)      │
-│    • Unicode normalization: Fix encoding issues, remove control chars     │
-│    • Whitespace normalization: Strip, collapse multiple spaces            │
-│    • Company name standardization: Case normalization, remove punctuation │
-│    • Location standardization: Map to consistent format (e.g., "Central") │
-│                                                                             │
-│ 3. Salary Parsing & Conversion                                             │
-│    • Parse ranges: "3000-5000", "$3k-$5k", "3000 to 5000"                  │
-│    • Extract min/max values (job_salary_min_sgd_raw, job_salary_max_sgd_raw)│
-│    • Identify period: hourly/daily/monthly/yearly (job_salary_type)       │
-│    • Convert to monthly: job_salary_min_sgd_monthly, job_salary_max_sgd_monthly│
-│      - Hourly: × 160 (40 hrs/week × 4 weeks)                              │
-│      - Daily: × 22 (working days/month)                                   │
-│      - Yearly: ÷ 12                                                       │
-│    • Handle edge cases: "Competitive", "Negotiable", null                 │
-│    • Currency: All SGD for now (job_currency = "SGD")                     │
-│                                                                             │
-│ 4. Language Detection                                                       │
-│    • Use: langdetect library (supports 55+ languages)                      │
-│    • Apply to: job_title + job_description (combined text)                │
-│    • Output: ISO 639-1 code (en, zh, ms, ta, etc.)                        │
-│    • Fallback: "unknown" if detection fails                               │
-│                                                                             │
-│ 5. Data Quality Validation                                                 │
-│    • Required fields: Ensure not null/empty                               │
-│      - job_id, job_title, company_name, source                            │
-│    • URL validation: Check format for job_url, company_url                │
-│    • Date validation: Ensure job_posted_timestamp <= scrape_timestamp     │
-│    • Salary validation: min <= max (if both present)                      │
-│    • Log warnings for incomplete records (but still insert)               │
-│                                                                             │
-│ 6. Enrich with Timestamps                                                  │
-│    • scrape_timestamp: From raw_jobs (preserve original)                  │
-│    • bq_timestamp: datetime.utcnow() at transformation time               │
-│    • job_posted_timestamp: Parsed from payload                            │
-│                                                                             │
-│ 7. Stream to BigQuery cleaned_jobs Table                                   │
-│    • Use: utils.bq.stream_rows_to_bq()                                     │
-│    • Validate against CleanedJob schema (utils.schemas.CleanedJob)        │
-│    • Batch size: 500 rows per batch                                       │
-│    • Append-only: Preserve full data lineage                              │
-│                                                                             │
-│ Output: cleaned_jobs table ready for ML/Analytics                          │
-│ Schema: See utils.schemas.CleanedJob (30+ fields)                          │
-│ Partitioning: By scrape_timestamp (TIMESTAMP)                              │
-│ Clustering: source, job_id, company_name                                   │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 2: TRANSFORMATION & CLEANING (Your Code)                                    │
+├───────────────────────────────────────────────────────────────────────────────────┤
+│ 1. Extract from payload JSON                                                      │
+│    • Job fields: job_id, title, description, location, classification             │
+│    • Company fields: company_id, name, description, industry, size                │
+│    • Salary fields: min/max (raw), type, currency                                 │
+│    • Timestamps: posted_timestamp, scrape_timestamp, bq_timestamp                 │
+│                                                                                   │
+│ 2. Text Cleaning & Normalization                                                  │
+│    • HTML removal: BeautifulSoup4 (strip all tags from descriptions)              │
+│    • Unicode normalization: Fix encoding issues, remove control chars             │
+│    • Whitespace normalization: Strip, collapse multiple spaces                    │
+│    • Company name standardization: Case normalization, remove punctuation         │
+│    • Location standardization: Map to consistent format (e.g., "Central")         │
+│                                                                                   │
+│ 3. Salary Parsing & Conversion                                                    │
+│    • Parse ranges: "3000-5000", "$3k-$5k", "3000 to 5000"                         │
+│    • Extract min/max values (job_salary_min_sgd_raw, job_salary_max_sgd_raw)      │
+│    • Identify period: hourly/daily/monthly/yearly (job_salary_type)               │
+│    • Convert to monthly: job_salary_min_sgd_monthly, job_salary_max_sgd_monthly   │
+│      - Hourly: × 160 (40 hrs/week × 4 weeks)                                      │
+│      - Daily: × 22 (working days/month)                                           │
+│      - Yearly: ÷ 12                                                               │
+│    • Handle edge cases: "Competitive", "Negotiable", null                         │
+│    • Currency: All SGD for now (job_currency = "SGD")                             │
+│                                                                                   │
+│ 4. Language Detection                                                             │
+│    • Use: langdetect library (supports 55+ languages)                             │
+│    • Apply to: job_title + job_description (combined text)                        │
+│    • Output: ISO 639-1 code (en, zh, ms, ta, etc.)                                │
+│    • Fallback: "unknown" if detection fails                                       │
+│                                                                                   │
+│ 5. Data Quality Validation                                                        │
+│    • Required fields: Ensure not null/empty                                       │
+│      - job_id, job_title, company_name, source                                    │
+│    • URL validation: Check format for job_url, company_url                        │
+│    • Date validation: Ensure job_posted_timestamp <= scrape_timestamp             │
+│    • Salary validation: min <= max (if both present)                              │
+│    • Log warnings for incomplete records (but still insert)                       │
+│                                                                                   │
+│ 6. Enrich with Timestamps                                                         │
+│    • scrape_timestamp: From raw_jobs (preserve original)                          │
+│    • bq_timestamp: datetime.utcnow() at transformation time                       │
+│    • job_posted_timestamp: Parsed from payload                                    │
+│                                                                                   │
+│ 7. Stream to BigQuery cleaned_jobs Table                                          │
+│    • Use: utils.bq.stream_rows_to_bq()                                            │
+│    • Validate against CleanedJob schema (utils.schemas.CleanedJob)                │
+│    • Batch size: 500 rows per batch                                               │
+│    • Append-only: Preserve full data lineage                                      │
+│                                                                                   │
+│ Output: cleaned_jobs table ready for ML/Analytics                                 │
+│ Schema (utils.schemas.CleanedJob):                                                │
+│   - source, scrape_timestamp, bq_timestamp                                        │
+│   - job_id, job_url, job_title, job_description, job_location                     │
+│   - job_classification, job_work_type                                             │
+│   - job_salary_min_sgd_raw, job_salary_max_sgd_raw, job_salary_type               │
+│   - job_salary_min_sgd_monthly, job_salary_max_sgd_monthly, job_currency          │
+│   - job_posted_timestamp                                                          │
+│   - company_id, company_url, company_name, company_description                    │
+│   - company_industry, company_size                                                │
+│ Partitioning: By scrape_timestamp (TIMESTAMP; primary partition field)            │
+│ Clustering: source, job_id, company_name                                          │
+└───────────────────────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 3: DOWNSTREAM CONSUMERS (Future Phases)                              │
+│ PHASE 3: DOWNSTREAM CONSUMERS (Future Phases)                               │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ • ML Engineer: Feature engineering, salary prediction, clustering          │
-│ • GenAI Agent: RAG retrieval, semantic search, job recommendations         │
-│ • Dashboard: Real-time analytics, trend visualization, company insights    │
-│ • API: REST endpoints for external consumers                               │
+│ • ML Engineer: Feature engineering, salary prediction, clustering           │
+│ • GenAI Agent: RAG retrieval, semantic search, job recommendations          │
+│ • Dashboard: Real-time analytics, trend visualization, company insights     │
+│ • API: REST endpoints for external consumers                                │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 **Deduplication Strategy (Query-Time):**
@@ -596,15 +593,22 @@ def process_gcs_upload(event, context):
 # Output Tables in BigQuery
 
 ### raw_jobs (from scrapers)
-- Columns: job_id, title, company, location, description, date_posted, url, source, salary_text, scraped_at
-- Partitioned by: scraped_at (daily)
-- Clustering: source, location
+- Columns: job_id, source, scrape_timestamp, payload (JSON)
+- Partitioned by: scrape_timestamp (daily)
+- Clustering: source, job_id
 
 ### cleaned_jobs (from ETL)
-- Columns: job_id, title, company, location, description_cleaned, language, date_posted, url, source, 
-           min_salary, max_salary, currency, salary_period, job_hash, processed_at
-- Partitioned by: processed_at (daily)
-- Clustering: source, location, language
+- Columns: 
+  - source, scrape_timestamp, bq_timestamp
+  - job_id, job_url, job_title, job_description, job_location
+  - job_classification, job_work_type
+  - job_salary_min_sgd_raw, job_salary_max_sgd_raw, job_salary_type
+  - job_salary_min_sgd_monthly, job_salary_max_sgd_monthly, job_currency
+  - job_posted_timestamp
+  - company_id, company_url, company_name, company_description
+  - company_industry, company_size
+- Partitioned by: scrape_timestamp (TIMESTAMP; primary partition field)
+- Clustering: source, job_id, company_name
 
 # Code Location
 -   ETL scripts: `/etl`
