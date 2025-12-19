@@ -19,7 +19,7 @@ Clean scraped data and prepare ML-ready dataset using Cloud Function (event-driv
 - ⚠️ **CRITICAL:** Always use `.venv/Scripts/python.exe` for all Python commands
 - Install dependencies: `.venv/Scripts/python.exe -m pip install <package>`
 - Run scripts: `.venv/Scripts/python.exe etl/pipeline.py`
-- Update `requirements.txt` when adding new dependencies
+- Update `requirements.txt` in the main directory when adding new dependencies
 
 # Technical Stack
 -   **Libraries:** `pandas`, `pyarrow`, `regex`, `google-cloud-bigquery`, `google-cloud-storage`
@@ -399,15 +399,6 @@ def process_gcs_upload(event, context):
 **Note:** Most implementation should be done in Phase 1A. This phase focuses on deployment and Cloud-specific features.
 
 ### 2A: Deployment Configuration
-- [ ] Create `etl/requirements.txt` (subset of main requirements):
-  ```
-  google-cloud-bigquery==3.38.0
-  google-cloud-storage==3.7.0
-  python-dateutil==2.9.0
-  beautifulsoup4==4.14.3
-  langdetect==1.0.9
-  ```
-
 - [ ] Create `etl/main.py` (Cloud Function entry point):
   ```python
   """Cloud Function entry point for GCS-triggered ETL pipeline.
@@ -500,17 +491,6 @@ def process_gcs_upload(event, context):
 - [ ] Monitor memory usage:
   - Log memory consumption at key points
   - Trigger warning if >400MB used (512MB limit)
-
-### 2D: Dependencies
-- [ ] Create `etl/requirements.txt`:
-  ```
-  google-cloud-storage==3.7.0
-  google-cloud-bigquery==3.38.0
-  pandas==2.3.3
-  python-dotenv==1.2.1
-  langdetect==1.0.9
-  ```
-- [ ] Ensure lightweight (no heavy ML libraries)
 
 ## Phase 3: Deployment & Testing
 

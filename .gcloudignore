@@ -1,0 +1,74 @@
+# Google Cloud Functions deployment - exclude unnecessary files
+# This reduces deployment size and speeds up deployment
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data directories (large files)
+data/
+logs/
+models/
+notebooks/
+
+# Testing
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docker files (not needed for Cloud Functions)
+Dockerfile.*
+docker-compose.yml
+.dockerignore
+cloudbuild.*.yaml
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Documentation (not needed at runtime)
+docs/
+README.md
+*.md
+
+# Deployment scripts
+deployment/
+
+# Other service directories (not needed for ETL)
+scraper/
+api/
+dashboard/
+ml/
+nlp/
+genai/
+
+# Environment files
+.env
+.env.*
+
+# Temporary deployment directory
+.deploy_temp/
+
+# Only include what's needed for ETL:
+# - etl/ (ETL code)
+# - utils/ (shared utilities)
+# - requirements.txt (dependencies)
+# Note: Deployment script creates clean package in .deploy_temp/
