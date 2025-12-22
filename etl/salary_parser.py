@@ -159,7 +159,13 @@ def convert_to_monthly(value: float, period: str) -> float:
 
 
 def parse_salary_range(text: str) -> Tuple[Optional[float], Optional[float], str]:
-    """Parse salary range from text (raw values, not converted).
+    """Parse salary range from text with enhanced edge case handling.
+    
+    Handles special patterns:
+    - "up to $5000" → (None, 5000) - cap only
+    - "from $3000" → (3000, None) - floor only
+    - "$3000 - $5000" → (3000, 5000) - range
+    - "$5000" → (5000, 5000) - single value
     
     Args:
         text: Salary text to parse
@@ -170,6 +176,10 @@ def parse_salary_range(text: str) -> Tuple[Optional[float], Optional[float], str
     Examples:
         >>> parse_salary_range("$3000 - $5000 per month")
         (3000.0, 5000.0, 'monthly')
+        >>> parse_salary_range("up to $5000 monthly")
+        (None, 5000.0, 'monthly')
+        >>> parse_salary_range("from $3000")
+        (3000.0, None, 'monthly')
         >>> parse_salary_range("$60000 per year")
         (60000.0, 60000.0, 'yearly')
         >>> parse_salary_range("Competitive")
@@ -194,7 +204,19 @@ def parse_salary_range(text: str) -> Tuple[Optional[float], Optional[float], str
     # Identify period
     period = identify_period(text)
     
-    # If only one number, use it as both min and max
+    # Check for "up to" pattern (cap only)
+    if re.search(r'\bup to\b', text_lower):
+        # "up to $5000" → min=None, max=5000
+        max_value = numbers[-1]  # Last number is the cap
+        return (None, max_value, period)
+    
+    # Check for "from" pattern (floor only)
+    if re.search(r'\bfrom\b', text_lower) and len(numbers) == 1:
+        # "from $3000" → min=3000, max=None
+        min_value = numbers[0]
+        return (min_value, None, period)
+    
+    # If only one number (no special keywords), use it as both min and max
     if len(numbers) == 1:
         return (numbers[0], numbers[0], period)
     
