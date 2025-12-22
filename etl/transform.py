@@ -114,53 +114,99 @@ def extract_jobstreet_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
 def extract_mcf_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Extract fields from MyCareersFuture payload JSON.
     
-    MCF structure (REST API response):
+    Handles two formats:
+    1. Wrapped format from scraper (with 'raw' key containing full API response)
+    2. Direct API response format (backwards compatibility)
+    
+    Wrapped structure:
         {
-            "uuid": "0020f55051bf3550cc65e1c86c246401",
-            "title": "[IMMEDIATE START!] Junior Business Associate- 🌟office hours🌟",
-            "description": "<p>Job description plain text</p>",
-            "metadata": {
-                "jobDetailsUrl": "hhttps://www.mycareersfuture.gov.sg/job/advertising/immediate-start-junior-business-associate-%F0%9F%8C%9Foffice-hours%F0%9F%8C%9F-anemo-marketing-solutions-0020f55051bf3550cc65e1c86c246401",
-                "updatedAt": "2025-12-21T17:03:20.000Z"
-            },
-            "address": {
-                "districts": [{"location": "Central"}]
-            },
-            "categories": [{"category": "Information Technology"}, ...],
-            "employmentTypes": [{"employmentType": "Full Time"}, ...],
-            "salary": {
-                "minimum": 4000,
-                "maximum": 6000,
-                "type": {"salaryType": "Monthly"}
-            },
-            "postedCompany": {
-                "uen": "53505888L",
-                "name": "ANEMO MARKETING SOLUTIONS",
-                "description": "<p>Company description plain text</p>",
-                "employeeCount": 50
-                "_links": {"self": {"href": "https://..."}}
+            "company": "ANEMO MARKETING SOLUTIONS",
+            "date_posted": "2025-12-21T17:03:20.000Z",
+            "description": "<p>Job description...</p>",
+            "location": "Singapore",
+            "title": "Job Title",
+            "raw": {
+                "uuid": "0020f55051bf3550cc65e1c86c246401",
+                "title": "[IMMEDIATE START!] Junior Business Associate- 🌟office hours🌟",
+                "description": "<p>Job description plain text</p>",
+                "metadata": {
+                    "jobDetailsUrl": "hhttps://www.mycareersfuture.gov.sg/job/advertising/immediate-start-junior-business-associate-%F0%9F%8C%9Foffice-hours%F0%9F%8C%9F-anemo-marketing-solutions-0020f55051bf3550cc65e1c86c246401",
+                    "updatedAt": "2025-12-21T17:03:20.000Z"
+                },
+                "address": {
+                    "districts": [{"location": "Central"}]
+                },
+                "categories": [{"category": "Information Technology"}, ...],
+                "employmentTypes": [{"employmentType": "Full Time"}, ...],
+                "salary": {
+                    "minimum": 4000,
+                    "maximum": 6000,
+                    "type": {"salaryType": "Monthly"}
+                },
+                "postedCompany": {
+                    "uen": "53505888L",
+                    "name": "ANEMO MARKETING SOLUTIONS",
+                    "description": "<p>Company description plain text</p>",
+                    "employeeCount": 50
+                    "_links": {"self": {"href": "https://..."}}
+                }
             }
         }
     
     Args:
-        payload: Raw MCF JSON payload
+        payload: Raw MCF JSON payload (either wrapped or direct)
         
     Returns:
         Dictionary of extracted fields
     """
-    metadata = payload.get('metadata', {})
-    address = payload.get('address', {})
-    districts = address.get('districts', [])
-    categories = payload.get('categories', [])
-    employment_types = payload.get('employmentTypes', [])
-    salary = payload.get('salary', {})
-    posted_company = payload.get('postedCompany', {})
-    company_links = posted_company.get('_links', {}).get('self', {})
+    # Check if this is the wrapped format from scraper (has 'raw' key)
+    if 'raw' in payload:
+        # Extract from nested 'raw' object (contains full MCF API response)
+        raw_data = payload.get('raw', {})
+        
+        # Extract all data from raw_data (not top-level convenience fields)
+        # Top-level fields are too generic (e.g., location="Singapore" instead of district)
+        job_id = raw_data.get('uuid', '')
+        job_title = raw_data.get('title', '')
+        job_description = raw_data.get('description', '')
+        date_posted = raw_data.get('metadata', {}).get('updatedAt', '')
+        
+        # Extract detailed fields from nested structures
+        metadata = raw_data.get('metadata', {})
+        address = raw_data.get('address', {})
+        districts = address.get('districts', [])
+        categories = raw_data.get('categories', [])
+        employment_types = raw_data.get('employmentTypes', [])
+        salary = raw_data.get('salary', {})
+        posted_company = raw_data.get('postedCompany', {})
+        company_links = posted_company.get('_links', {}).get('self', {})
+        
+        # Get specific location from districts (not generic "Singapore")
+        job_location = districts[0].get('location', '') if districts and len(districts) > 0 else ''
+        company_name = posted_company.get('name', '')
+            
+    else:
+        # Direct API response format (backwards compatibility)
+        metadata = payload.get('metadata', {})
+        address = payload.get('address', {})
+        districts = address.get('districts', [])
+        categories = payload.get('categories', [])
+        employment_types = payload.get('employmentTypes', [])
+        salary = payload.get('salary', {})
+        posted_company = payload.get('postedCompany', {})
+        company_links = posted_company.get('_links', {}).get('self', {})
+        
+        job_id = payload.get('uuid', '')
+        job_title = payload.get('title', '')
+        job_description = payload.get('description', '')
+        job_location = districts[0].get('location', '') if districts else ''
+        company_name = posted_company.get('name', '')
+        date_posted = metadata.get('updatedAt', '')
     
-    # Build salary text from min/max
-    salary_min = salary.get('minimum')
-    salary_max = salary.get('maximum')
-    salary_type = salary.get('type', {}).get('salaryType', 'Monthly')
+    # Build salary text from min/max (works for both formats)
+    salary_min = salary.get('minimum') if isinstance(salary, dict) else None
+    salary_max = salary.get('maximum') if isinstance(salary, dict) else None
+    salary_type = salary.get('type', {}).get('salaryType', 'Monthly') if isinstance(salary, dict) else 'Monthly'
     
     if salary_min and salary_max:
         salary_text = f"${salary_min} - ${salary_max} {salary_type}"
@@ -170,22 +216,22 @@ def extract_mcf_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         salary_text = ''
     
     return {
-        'job_id': payload.get('uuid', ''),
-        'job_url': metadata.get('jobDetailsUrl', ''),
-        'job_title': payload.get('title', ''),
-        'job_description': payload.get('description', ''),  # Raw HTML
-        'job_location': districts[0].get('location', '') if districts else '',
-        'job_classification': categories[0].get('category', '') if categories else '',
-        'job_work_type': employment_types[0].get('employmentType', '') if employment_types else '',
+        'job_id': job_id,
+        'job_url': metadata.get('jobDetailsUrl', '') if isinstance(metadata, dict) else '',
+        'job_title': job_title,
+        'job_description': job_description,
+        'job_location': job_location,
+        'job_classification': categories[0].get('category', '') if categories and len(categories) > 0 else '',
+        'job_work_type': employment_types[0].get('employmentType', '') if employment_types and len(employment_types) > 0 else '',
         'job_salary_text': salary_text,
-        'job_posted_timestamp': metadata.get('updatedAt'),
+        'job_posted_timestamp': date_posted,
         
-        'company_id': posted_company.get('uen', ''),
-        'company_url': company_links.get('href', ''),
-        'company_name': posted_company.get('name', ''),
-        'company_description': posted_company.get('description', ''),
+        'company_id': posted_company.get('uen', '') if isinstance(posted_company, dict) else '',
+        'company_url': company_links.get('href', '') if isinstance(company_links, dict) else '',
+        'company_name': company_name,
+        'company_description': posted_company.get('description', '') if isinstance(posted_company, dict) else '',
         'company_industry': '',  # Not available in MCF
-        'company_size': str(posted_company.get('employeeCount', '')) if posted_company.get('employeeCount') else '',
+        'company_size': str(posted_company.get('employeeCount', '')) if isinstance(posted_company, dict) and posted_company.get('employeeCount') else '',
     }
 
 

@@ -276,21 +276,29 @@ def stage2_transform_to_cleaned(
     logger.info(f"[Stage 2] Starting transformation: source={source}, timestamp={scrape_timestamp}")
     
     # Ensure cleaned_jobs table exists
+    client = bq_client(settings)
     dataset_id = settings.bigquery_dataset_id
     table_id = "cleaned_jobs"
     
     logger.info(f"[Stage 2] Ensuring table: {dataset_id}.{table_id}")
-    ensure_dataset(dataset_id, settings)
+    ensure_dataset(
+        client,
+        dataset_id,
+        location=settings.gcp_region,
+        description="Singapore Job Market data warehouse"
+    )
     ensure_table(
-        dataset_id=dataset_id,
-        table_id=table_id,
-        schema=cleaned_jobs_schema(),
+        client,
+        dataset_id,
+        table_id,
+        cleaned_jobs_schema(),
         partition_field="scrape_timestamp",
         clustering_fields=["source", "job_id", "company_name"],
-        settings=settings,
+        description="Cleaned and transformed job data ready for ML/Analytics"
     )
     
-    # Query raw_jobs for this specific scrape run
+    # Query raw_jobs for this specific scrape run (date-based matching)
+    # Using DATE() to handle microsecond-precision timestamps from scrapers
     query = f"""
     SELECT 
         job_id,
@@ -298,20 +306,20 @@ def stage2_transform_to_cleaned(
         scrape_timestamp,
         payload
     FROM `{settings.gcp_project_id}.{dataset_id}.raw_jobs`
-    WHERE source = @source
-      AND scrape_timestamp = @scrape_timestamp
+    WHERE LOWER(source) = LOWER(@source)
+      AND DATE(scrape_timestamp) = DATE(@scrape_date)
     ORDER BY job_id
     """
     
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("source", "STRING", source),
-            bigquery.ScalarQueryParameter("scrape_timestamp", "TIMESTAMP", scrape_timestamp),
+            bigquery.ScalarQueryParameter("scrape_date", "TIMESTAMP", scrape_timestamp),
         ]
     )
     
     logger.info(f"[Stage 2] Querying raw_jobs...")
-    query_job = bq_client(settings).query(query, job_config=job_config)
+    query_job = client.query(query, job_config=job_config)
     raw_rows = list(query_job.result())  # Fetch all (should be manageable for daily scrapes)
     
     total_raw_rows = len(raw_rows)
@@ -334,12 +342,20 @@ def stage2_transform_to_cleaned(
     skipped_count = 0
     
     for idx, row in enumerate(raw_rows, 1):
+        # Parse payload (BigQuery JSON column returns as string)
+        try:
+            payload = json.loads(row.payload) if isinstance(row.payload, str) else dict(row.payload) if row.payload else {}
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"[Stage 2] Failed to parse payload for {row.source}:{row.job_id}: {e}")
+            skipped_count += 1
+            continue
+        
         # Build RawJob object
         raw_job = RawJob(
             job_id=row.job_id,
             source=row.source,
             scrape_timestamp=row.scrape_timestamp,
-            payload=dict(row.payload) if row.payload else {},
+            payload=payload,
         )
         
         # Transform
@@ -409,13 +425,15 @@ def stage2_transform_to_cleaned(
     
     logger.info(f"[Stage 2] Streaming {len(cleaned_rows)} rows to cleaned_jobs...")
     
-    streamed_count = stream_rows_to_bq(
-        dataset_id=dataset_id,
-        table_id=table_id,
-        rows=cleaned_rows,
+    stream_result = stream_rows_to_bq(
+        client,
+        dataset_id,
+        table_id,
+        cleaned_rows,
         batch_size=batch_size,
-        settings=settings,
     )
+    
+    streamed_count = stream_result["successful_rows"]
     
     stage_duration = (datetime.now(timezone.utc) - start_time).total_seconds()
     
