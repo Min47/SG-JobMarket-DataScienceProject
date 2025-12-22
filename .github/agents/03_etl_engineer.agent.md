@@ -162,7 +162,7 @@ You can create a simple visual pipeline with:
 │                                                                             │
 │ 3. Stream to BigQuery raw_jobs Table                                        │
 │    • Use: utils.bq.stream_rows_to_bq()                                      │
-│    • Batch size: 500 rows per batch (optimal for streaming)                 │
+│    • Batch size: 20 rows per batch                                          │
 │    • Append-only: Never update/delete existing rows                         │
 │    • Retry on transient errors (automatic in API)                           │
 │                                                                             │
@@ -221,7 +221,7 @@ You can create a simple visual pipeline with:
 │ 7. Stream to BigQuery cleaned_jobs Table                                          │
 │    • Use: utils.bq.stream_rows_to_bq()                                            │
 │    • Validate against CleanedJob schema (utils.schemas.CleanedJob)                │
-│    • Batch size: 500 rows per batch                                               │
+│    • Batch size: 20 rows per batch                                                │
 │    • Append-only: Preserve full data lineage                                      │
 │                                                                                   │
 │ Output: cleaned_jobs table ready for ML/Analytics                                 │
@@ -486,7 +486,7 @@ def process_gcs_upload(event, context):
 
 ### 2C: Memory & Performance Optimization
 - [ ] Batch processing for large files:
-  - Process in chunks of 500 rows (if file >5K jobs)
+  - Process in chunks of 20 rows
   - Stream to BigQuery in batches (avoid memory spike)
 - [ ] Monitor memory usage:
   - Log memory consumption at key points
