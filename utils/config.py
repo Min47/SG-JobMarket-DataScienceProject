@@ -29,7 +29,7 @@ class Settings:
         gcp_project_id = os.getenv("GCP_PROJECT_ID", "").strip()
         bigquery_dataset_id = os.getenv("BIGQUERY_DATASET_ID", "").strip()
         gcp_region = os.getenv("GCP_REGION", "").strip()
-        gcs_bucket = os.getenv("GCS_BUCKET", "").strip() or None
+        gcs_bucket = os.getenv("GCS_BUCKET", "").strip()
 
         missing = [
             name
@@ -37,6 +37,7 @@ class Settings:
                 ("GCP_PROJECT_ID", gcp_project_id),
                 ("BIGQUERY_DATASET_ID", bigquery_dataset_id),
                 ("GCP_REGION", gcp_region),
+                ("GCS_BUCKET", gcs_bucket),
             )
             if not value
         ]

@@ -19,11 +19,12 @@ from typing import Any, Dict, List, Optional
 from google.cloud import bigquery
 
 from utils.bq import bq_client, ensure_dataset, ensure_table, stream_rows_to_bq
-from utils.bq_schemas import raw_jobs_schema
+from utils.bq_schemas import raw_jobs_schema, cleaned_jobs_schema
 from utils.config import Settings
 from utils.gcs import GCSClient, parse_gcs_uri
 from utils.logging import configure_logging
-from utils.schemas import RawJob
+from utils.schemas import RawJob, CleanedJob
+from etl.transform import transform_raw_to_cleaned
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +234,205 @@ def stage1_load_raw(
     )
     
     return result
+
+
+# =============================================================================
+# Stage 2: raw_jobs → cleaned_jobs (Transformation & Cleaning)
+# =============================================================================
+
+def stage2_transform_to_cleaned(
+    source: str,
+    scrape_timestamp: datetime,
+    settings: Settings,
+    batch_size: int = 20,
+) -> Dict[str, Any]:
+    """Stage 2: Transform raw_jobs to cleaned_jobs.
+    
+    This function:
+    1. Queries raw_jobs for the specific scrape run
+    2. Transforms each RawJob → CleanedJob (text cleaning, salary parsing, etc.)
+    3. Streams CleanedJob records to BigQuery cleaned_jobs table
+    4. Processes in batches to manage memory
+    
+    Args:
+        source: Source name ('jobstreet' or 'mcf')
+        scrape_timestamp: Timestamp of the scrape run to process
+        settings: Configuration settings
+        batch_size: Number of rows to process per batch (default: 20)
+        
+    Returns:
+        Result dictionary with statistics
+        
+    Example:
+        >>> result = stage2_transform_to_cleaned(
+        ...     source='jobstreet',
+        ...     scrape_timestamp=datetime(2025, 12, 22, 21, 0, 0),
+        ...     settings=Settings.load()
+        ... )
+        >>> print(f"Transformed {result['cleaned_rows']} rows")
+    """
+    start_time = datetime.now(timezone.utc)
+    logger.info("")
+    logger.info(f"[Stage 2] Starting transformation: source={source}, timestamp={scrape_timestamp}")
+    
+    # Ensure cleaned_jobs table exists
+    dataset_id = settings.bigquery_dataset_id
+    table_id = "cleaned_jobs"
+    
+    logger.info(f"[Stage 2] Ensuring table: {dataset_id}.{table_id}")
+    ensure_dataset(dataset_id, settings)
+    ensure_table(
+        dataset_id=dataset_id,
+        table_id=table_id,
+        schema=cleaned_jobs_schema(),
+        partition_field="scrape_timestamp",
+        clustering_fields=["source", "job_id", "company_name"],
+        settings=settings,
+    )
+    
+    # Query raw_jobs for this specific scrape run
+    query = f"""
+    SELECT 
+        job_id,
+        source,
+        scrape_timestamp,
+        payload
+    FROM `{settings.gcp_project_id}.{dataset_id}.raw_jobs`
+    WHERE source = @source
+      AND scrape_timestamp = @scrape_timestamp
+    ORDER BY job_id
+    """
+    
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("source", "STRING", source),
+            bigquery.ScalarQueryParameter("scrape_timestamp", "TIMESTAMP", scrape_timestamp),
+        ]
+    )
+    
+    logger.info(f"[Stage 2] Querying raw_jobs...")
+    query_job = bq_client(settings).query(query, job_config=job_config)
+    raw_rows = list(query_job.result())  # Fetch all (should be manageable for daily scrapes)
+    
+    total_raw_rows = len(raw_rows)
+    logger.info(f"[Stage 2] Fetched {total_raw_rows} raw rows to transform")
+    
+    if total_raw_rows == 0:
+        logger.warning(f"[Stage 2] No rows found for source={source}, timestamp={scrape_timestamp}")
+        return {
+            "source": source,
+            "scrape_timestamp": scrape_timestamp,
+            "raw_rows_fetched": 0,
+            "transformed_rows": 0,
+            "skipped_rows": 0,
+            "cleaned_rows_streamed": 0,
+            "duration_seconds": 0,
+        }
+    
+    # Transform rows (batch processing)
+    transformed_jobs = []
+    skipped_count = 0
+    
+    for idx, row in enumerate(raw_rows, 1):
+        # Build RawJob object
+        raw_job = RawJob(
+            job_id=row.job_id,
+            source=row.source,
+            scrape_timestamp=row.scrape_timestamp,
+            payload=dict(row.payload) if row.payload else {},
+        )
+        
+        # Transform
+        cleaned_job = transform_raw_to_cleaned(raw_job)
+        
+        if cleaned_job:
+            transformed_jobs.append(cleaned_job)
+        else:
+            skipped_count += 1
+        
+        # Log progress every 20 rows
+        if idx % 20 == 0:
+            logger.info(f"[Stage 2] Transformed {idx}/{total_raw_rows} rows...")
+    
+    transformed_count = len(transformed_jobs)
+    logger.info(
+        f"[Stage 2] Transformation complete: "
+        f"{transformed_count} transformed, {skipped_count} skipped"
+    )
+    
+    # Stream to BigQuery in batches
+    if transformed_count == 0:
+        logger.warning("[Stage 2] No valid cleaned rows to stream")
+        return {
+            "source": source,
+            "scrape_timestamp": scrape_timestamp,
+            "raw_rows_fetched": total_raw_rows,
+            "transformed_rows": 0,
+            "skipped_rows": skipped_count,
+            "cleaned_rows_streamed": 0,
+            "duration_seconds": (datetime.now(timezone.utc) - start_time).total_seconds(),
+        }
+    
+    # Convert CleanedJob objects to dicts for streaming
+    cleaned_rows = []
+    for cleaned_job in transformed_jobs:
+        # Convert dataclass to dict
+        row_dict = {
+            "source": cleaned_job.source,
+            "scrape_timestamp": cleaned_job.scrape_timestamp.isoformat(),
+            "bq_timestamp": cleaned_job.bq_timestamp.isoformat(),
+            
+            "job_id": cleaned_job.job_id,
+            "job_url": cleaned_job.job_url,
+            "job_title": cleaned_job.job_title,
+            "job_description": cleaned_job.job_description,
+            "job_location": cleaned_job.job_location,
+            "job_classification": cleaned_job.job_classification,
+            "job_work_type": cleaned_job.job_work_type,
+            
+            "job_salary_min_sgd_raw": cleaned_job.job_salary_min_sgd_raw,
+            "job_salary_max_sgd_raw": cleaned_job.job_salary_max_sgd_raw,
+            "job_salary_type": cleaned_job.job_salary_type,
+            "job_salary_min_sgd_monthly": cleaned_job.job_salary_min_sgd_monthly,
+            "job_salary_max_sgd_monthly": cleaned_job.job_salary_max_sgd_monthly,
+            "job_currency": cleaned_job.job_currency,
+            "job_posted_timestamp": cleaned_job.job_posted_timestamp.isoformat(),
+            
+            "company_id": cleaned_job.company_id,
+            "company_url": cleaned_job.company_url,
+            "company_name": cleaned_job.company_name,
+            "company_description": cleaned_job.company_description,
+            "company_industry": cleaned_job.company_industry,
+            "company_size": cleaned_job.company_size,
+        }
+        cleaned_rows.append(row_dict)
+    
+    logger.info(f"[Stage 2] Streaming {len(cleaned_rows)} rows to cleaned_jobs...")
+    
+    streamed_count = stream_rows_to_bq(
+        dataset_id=dataset_id,
+        table_id=table_id,
+        rows=cleaned_rows,
+        batch_size=batch_size,
+        settings=settings,
+    )
+    
+    stage_duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+    
+    logger.info(
+        f"[Stage 2] Complete: {streamed_count}/{transformed_count} rows loaded "
+        f"in {stage_duration:.1f}s"
+    )
+    
+    return {
+        "source": source,
+        "scrape_timestamp": scrape_timestamp,
+        "raw_rows_fetched": total_raw_rows,
+        "transformed_rows": transformed_count,
+        "skipped_rows": skipped_count,
+        "cleaned_rows_streamed": streamed_count,
+        "duration_seconds": stage_duration,
+    }
 
 
 # =============================================================================

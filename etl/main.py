@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from etl.cloud_function_main import stage1_load_raw
+from etl.cloud_function_main import stage1_load_raw, stage2_transform_to_cleaned
 from utils.config import Settings
 from utils.logging import configure_logging
 
@@ -85,9 +85,10 @@ def etl_gcs_to_bigquery(event: dict, context) -> str:
     # Load settings
     settings = Settings.load()
     
-    # Execute Stage 1: JSONL → raw_jobs
     try:
-        result = stage1_load_raw(
+        # Execute Stage 1: GCS → raw_jobs
+        logger.info("[Stage 1] Starting load to raw_jobs...")
+        stage1_result = stage1_load_raw(
             gcs_uri=gcs_uri,
             source=source,
             scrape_timestamp=scrape_timestamp,
@@ -96,24 +97,50 @@ def etl_gcs_to_bigquery(event: dict, context) -> str:
         )
         
         success_rate = (
-            result["streamed_rows"] / result["valid_rows"] * 100 
-            if result["valid_rows"] > 0 else 0
+            stage1_result["streamed_rows"] / stage1_result["valid_rows"] * 100 
+            if stage1_result["valid_rows"] > 0 else 0
         )
         
         logger.info(
-            f"[ETL] Stage 1 complete: "
-            f"{result['streamed_rows']}/{result['valid_rows']} rows "
-            f"({success_rate:.1f}% success) in {result['duration_seconds']:.1f}s"
+            f"[Stage 1] Complete: "
+            f"{stage1_result['streamed_rows']}/{stage1_result['valid_rows']} rows "
+            f"({success_rate:.1f}% success) in {stage1_result['duration_seconds']:.1f}s"
         )
         
-        if result["failed_rows"] > 0:
-            logger.warning(f"[ETL] {result['failed_rows']} rows failed to stream")
+        if stage1_result["failed_rows"] > 0:
+            logger.warning(f"[Stage 1] {stage1_result['failed_rows']} rows failed to stream")
+        
+        
+        # Execute Stage 2: raw_jobs → cleaned_jobs
+        logger.info("[Stage 2] Starting transformation...")
+        
+        stage2_result = stage2_transform_to_cleaned(
+            source=source,
+            scrape_timestamp=scrape_timestamp,
+            settings=settings,
+        )
+        
+        logger.info(
+            f"[Stage 2] Complete: "
+            f"{stage2_result['cleaned_rows_streamed']}/{stage2_result['transformed_rows']} "
+            f"rows loaded to cleaned_jobs in {stage2_result['duration_seconds']:.1f}s"
+        )
+        
+        if stage2_result['skipped_rows'] > 0:
+            logger.warning(f"[Stage 2] {stage2_result['skipped_rows']} rows skipped during transformation")
+        
+        
+        # Total summary
+        logger.info("[ETL] Pipeline complete")
+        total_duration = stage1_result['duration_seconds'] + stage2_result['duration_seconds']
         
         return (
-            f"✓ ETL complete: {result['streamed_rows']} rows loaded to raw_jobs "
-            f"(source={source}, duration={result['duration_seconds']:.1f}s)"
+            f"✓ ETL complete: "
+            f"Stage 1: {stage1_result['streamed_rows']} raw rows, "
+            f"Stage 2: {stage2_result['cleaned_rows_streamed']} cleaned rows "
+            f"(total: {total_duration:.1f}s)"
         )
     
     except Exception as e:
-        logger.error(f"[ETL] Stage 1 failed: {e}", exc_info=True)
-        return f"ERROR: Stage 1 failed: {e}"
+        logger.error(f"[ETL] Pipeline failed: {e}", exc_info=True)
+        return f"ERROR: ETL pipeline failed: {e}"
