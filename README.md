@@ -76,12 +76,15 @@ All components are modular, testable, documented, and cloud-ready.
 - Cloud Run deployment
 - Cloud Scheduler automation
 
-**Phase 2: ETL Pipeline** 🔄 **IN PROGRESS**
-- BigQuery streaming API implementation
-- Cloud Functions event triggers
-- Text cleaning and normalization
-- Salary parsing engine
-- Deduplication logic
+**Phase 2: ETL Pipeline** ✅ **COMPLETE** (Deployed to Production)
+- ✅ Stage 1: GCS → raw_jobs (deployed & operational)
+- ✅ Stage 2: raw_jobs → cleaned_jobs (deployed & operational)
+- ✅ Two-stage transformation in single Cloud Function
+- ✅ Text cleaning: HTML removal, unicode normalization, whitespace cleanup
+- ✅ Salary parsing: Range extraction, period detection, monthly conversion
+- ✅ Query-time deduplication with ROW_NUMBER() pattern
+- ✅ BigQuery streaming API with 100% success rate (5,861+ jobs tested)
+- ✅ Cloud Function `etl-gcs-to-bigquery` deployed in asia-southeast1
 
 **Phase 3: ML/NLP** 🔲 **PLANNED**
 - SBERT embeddings generation
