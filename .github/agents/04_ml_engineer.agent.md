@@ -15,13 +15,50 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
 - ✅ GenAI folder scaffolded (`/genai/` with placeholders)
 - ✅ ML/NLP folders exist (`/ml/`, `/nlp/` with placeholders)
 
-**What's Next:** Phase 1A - NLP Embeddings Generation
+**What's Next:** Phase 3A - NLP Embeddings Generation
 
 **Virtual Environment Usage:**
 - ⚠️ **CRITICAL:** Always use `.venv/Scripts/python.exe` for all Python commands
 - Install dependencies: `.venv/Scripts/python.exe -m pip install <package>`
 - Run training: `.venv/Scripts/python.exe -m ml.train`
 - Update `requirements.txt` when adding new packages
+
+---
+
+# Strategic Decision: Manual Coding vs Vertex AI AutoML
+
+## Why Build From Scratch First?
+
+| Aspect | Manual Coding (Our Approach ✅) | Vertex AI AutoML |
+|--------|--------------------------------|------------------|
+| **Learning Value** | ⭐⭐⭐⭐⭐ Deep understanding | ⭐⭐ Black box |
+| **Learning Result** | Can explain internals | "I used AutoML" |
+| **Customization** | Full control | Limited options |
+| **Cost** | FREE (local training) | $$$$ (training + hosting) |
+| **Production Scale** | Requires more work | Easy deployment |
+
+## Hybrid Approach (Recommended)
+
+```
+Phase 1: BUILD FROM SCRATCH (Learning & Portfolio)
+├── Implement embeddings manually (understand transformers)
+├── Train LightGBM yourself (understand gradient boosting)
+├── Build clustering from sklearn (understand unsupervised learning)
+└── Learn WHY each decision works
+
+Phase 2: COMPARE WITH VERTEX AI (Validation)
+├── Try Vertex AI AutoML on same data
+├── Compare metrics (your model vs AutoML)
+├── Understand when AutoML is better/worse
+└── Document tradeoffs
+
+Phase 3: PRODUCTION (Real World)
+├── Use Vertex AI for model serving (scalability)
+├── But keep custom model logic for flexibility
+└── Best of both worlds
+```
+
+---
 
 # Technical Stack
 
@@ -45,9 +82,9 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ BigQuery: cleaned_jobs                                                      │
 │         ↓ (query job_description, job_title)                                │
-│ Sentence-BERT: all-MiniLM-L6-v2 (384 dimensions)                           │
+│ Sentence-BERT: all-MiniLM-L6-v2 (384 dimensions)                            │
 │         ↓ (batch embedding generation)                                      │
-│ BigQuery: job_embeddings table (job_id, embedding ARRAY<FLOAT64>)          │
+│ BigQuery: job_embeddings table (job_id, embedding ARRAY<FLOAT64>)           │
 │         ↓ (create vector index)                                             │
 │ BigQuery Vector Search: Ready for similarity queries                        │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -69,7 +106,7 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
 │ PHASE 3C: MODEL TRAINING                                                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ SUPERVISED                          │ UNSUPERVISED                          │
-│ ─────────────────────────────────── │ ─────────────────────────────────────│
+│ ─────────────────────────────────── │ ──────────────────────────────────────│
 │ Salary Prediction (Regression)      │ Job Clustering (KMeans)               │
 │   • Target: salary_mid_monthly      │   • Input: embeddings + features      │
 │   • Models: LightGBM, XGBoost       │   • Output: cluster_id (0-9)          │
@@ -101,6 +138,83 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
 # Phase 3A: NLP Embeddings Generation
 
 **Goal:** Generate semantic embeddings for all job descriptions to enable similarity search and clustering.
+
+## 3A.0: Conceptual Understanding
+
+### What are Embeddings?
+Embeddings convert text → dense numerical vectors where **similar meanings = similar vectors**.
+
+```
+Raw Text                              Embedding (384 floats)
+─────────────────                     ────────────────────────
+"Senior Data Scientist"        →      [0.23, -0.45, 0.67, ...]
+"Data Scientist Lead"          →      [0.22, -0.44, 0.69, ...]  ← Similar!
+"Restaurant Manager"           →      [-0.78, 0.91, -0.12, ...] ← Different!
+```
+
+### Why Sentence-BERT (SBERT) and Not BM25?
+
+| Aspect | Sentence-BERT (SBERT) ✅ | BM25 |
+|--------|--------------------------|------|
+| **Type** | Dense embeddings (neural network) | Sparse (term frequency-inverse doc frequency) |
+| **Output** | 384 floats per document | Inverted index (word → documents) |
+| **Similarity** | Cosine similarity in vector space | TF-IDF scoring |
+| **Semantic Understanding** | ✅ "Software Engineer" ≈ "Developer" | ❌ Exact word match only |
+| **Clustering Support** | ✅ KMeans needs dense vectors | ❌ Cannot cluster |
+| **Storage** | ~1.5KB per job (384 × 4 bytes) | Variable, often larger |
+| **Speed** | Slower to generate (neural forward pass) | Faster (counting) |
+| **Use Case** | Semantic search, clustering, ML features | Keyword search |
+
+**Why SBERT for our project:**
+1. **Job descriptions are semantic** - "Python Developer" and "Python Engineer" should match
+2. **Clustering requires vectors** - KMeans requires dense numerical input
+3. **ML features** - Embeddings become input features for salary prediction
+4. **Industry standard** - Every modern search/recommendation system uses embeddings
+
+**Advanced: Hybrid BM25 + SBERT (for future RAG):**
+```python
+def hybrid_search(query):
+    # Step 1: BM25 retrieves top 100 candidates (fast, broad recall)
+    candidates = bm25_search(query, top_k=100)
+    
+    # Step 2: SBERT reranks by semantic similarity (precise)
+    query_embedding = sbert.encode(query)
+    reranked = sort_by_cosine_similarity(candidates, query_embedding)
+    return reranked[:10]
+```
+
+### Why 384 Dimensions?
+
+It's determined by the **model architecture**, not our choice:
+
+| Model | Dimensions | Architecture | Speed |
+|-------|------------|--------------|-------|
+| all-MiniLM-L6-v2 ✅ | 384 | 6-layer transformer, 384 hidden units | ⚡ Fast |
+| all-mpnet-base-v2 | 768 | 12-layer transformer, 768 hidden units | Medium |
+| OpenAI text-embedding-3-small | 1536 | Larger architecture | Slow (API) |
+
+**Tradeoff:** More dimensions = more semantic information but more storage/computation.
+**384 is the sweet spot** for most use cases (good quality, fast, small storage).
+
+### Why BigQuery for Vector Storage (Not ChromaDB/Pinecone)?
+
+| Aspect | BigQuery Vector Search ✅ | ChromaDB | Pinecone |
+|--------|--------------------------|----------|----------|
+| **Type** | Data warehouse + vectors | Vector-only DB | Vector-only DB |
+| **Cost** | $5/TB scanned (free tier!) | Free (local) | $70/month+ |
+| **Scalability** | Billions of rows | Millions | Billions |
+| **Query Speed** | ~100ms (with index) | ~10ms | ~10ms |
+| **Integration** | Already using BQ ✅ | Separate service | Separate service |
+| **Append-Only** | ✅ Perfect fit | ✅ Supports | ✅ Supports |
+| **SQL Analytics** | ✅ JOIN with job data | ❌ Vectors only | ❌ Vectors only |
+
+**Why BigQuery for us:**
+1. **Already using BQ** - No new infrastructure to manage
+2. **JOIN capability** - `SELECT * FROM jobs JOIN embeddings` in one query
+3. **Cost efficient** - Free tier covers our volume (~10K jobs)
+4. **Append-only fits our model** - We don't update embeddings, just add new ones
+
+**When to use ChromaDB:** Local dev/testing, RAG with sub-10ms latency needs.
 
 ## 3A.1: Embedding Model Selection
 
@@ -176,6 +290,71 @@ Can upgrade to Vertex AI embeddings later for production.
 # Phase 3B: Feature Engineering
 
 **Goal:** Create ML-ready features from cleaned jobs and embeddings.
+
+## 3B.0: Conceptual Understanding
+
+### What is Feature Engineering?
+**Feature Engineering = Converting raw data → numbers that ML models can understand**
+
+```
+Raw Job Posting                         ML Features (Numbers)
+─────────────────                       ─────────────────────
+"Senior Data Scientist at               salary_min: 8000
+Google, 8000-12000 SGD,          →      salary_max: 12000
+Full-time, Singapore,                   is_fulltime: 1
+5 years experience..."                  location_singapore: 1
+                                        description_length: 2341
+                                        embedding[0:384]: [0.23, ...]
+```
+
+### Why is Feature Engineering Important?
+- **ML models only understand numbers** - Can't feed raw text directly
+- **Good features = good predictions** - "Garbage in, garbage out"
+- **Domain knowledge encoded** - salary_range might indicate job level
+- **80% of ML work** - Data scientists spend most time here, not on model tuning
+
+### What Each Feature Type Captures
+
+| Feature Type | Examples | What it Captures | Why Useful |
+|-------------|----------|------------------|------------|
+| **Numerical** | salary_min, description_length | Direct measurements | Continuous relationships |
+| **Categorical** | location, work_type | Group membership | Different baselines per group |
+| **Temporal** | days_since_posted | Time patterns | Fresh jobs might pay differently |
+| **Embeddings** | 384-dim vector | Semantic meaning of text | Role/industry context |
+
+### Why 384 Embedding Dimensions in Features?
+The 384 comes from our chosen SBERT model (all-MiniLM-L6-v2). Each dimension is a **learned semantic feature** - we can't interpret individual dimensions, but together they capture meaning.
+
+**For ML, we might reduce to 10-50 dimensions using PCA:**
+- 384 raw dimensions can cause overfitting with small datasets
+- PCA preserves most information in fewer dimensions
+- Faster training and inference
+
+### Should ml_features Be a Table or View?
+
+**Recommendation: VIEW for computed features, TABLE only for embeddings**
+
+```sql
+-- VIEW (computed on-the-fly, always fresh)
+CREATE VIEW vw_ml_features AS
+SELECT 
+  job_id,
+  (salary_min + salary_max) / 2 AS salary_mid,  -- Cheap to compute
+  LENGTH(job_description) AS desc_length,        -- Cheap to compute
+FROM cleaned_jobs;
+
+-- TABLE (for expensive pre-computed data)
+CREATE TABLE job_embeddings (
+  job_id STRING,
+  embedding ARRAY<FLOAT64>  -- Expensive to compute, store once
+);
+```
+
+**Why:**
+- Views = always up-to-date, no sync issues
+- Tables = faster but can become stale
+- Embeddings are expensive (neural network) → store in table
+- Simple SQL features are cheap → compute in view
 
 ## 3B.1: Feature Categories
 
@@ -261,6 +440,124 @@ Can upgrade to Vertex AI embeddings later for production.
 # Phase 3C: Model Training
 
 **Goal:** Train and evaluate salary prediction and clustering models.
+
+## 3C.0: Conceptual Understanding
+
+### Why LightGBM Over XGBoost or Others?
+
+| Aspect | LightGBM ✅ | XGBoost | Random Forest | Linear Regression |
+|--------|------------|---------|---------------|-------------------|
+| **Speed** | ⚡ Fastest | Medium | Slowest | ⚡ Fastest |
+| **Memory** | Low | Medium | High | Lowest |
+| **Accuracy** | Excellent | Excellent | Good | Poor (non-linear) |
+| **Handles Categorical** | ✅ Native | ❌ Need encoding | ❌ Need encoding | ❌ Need encoding |
+| **Handles Missing** | ✅ Native | ✅ Native | ❌ Need imputation | ❌ Need imputation |
+| **Tree Growth** | Leaf-wise (deeper) | Level-wise (balanced) | Level-wise | N/A |
+| **Overfitting Risk** | Higher | Lower | Lowest | Lowest |
+| **Hyperparameter Sensitivity** | More sensitive | More forgiving | Least sensitive | None |
+| **Interpretability** | Feature importance | Feature importance | Feature importance | Coefficients |
+
+**Why LightGBM for our project:**
+1. **Native categorical handling** - job_location, work_type don't need one-hot encoding
+2. **Speed** - Fast iteration during development and hyperparameter tuning
+3. **Industry standard** - Used at Microsoft, Alibaba, most Kaggle winners
+4. **Good with embeddings** - Handles high-dimensional features well
+
+**Learning Result:** "LightGBM uses leaf-wise tree growth which creates deeper, more specialized trees faster than XGBoost's level-wise approach. For our tabular data with many categorical features like job_location and work_type, LightGBM's native categorical handling avoids the curse of dimensionality from one-hot encoding (Singapore alone has 50+ neighborhoods). The tradeoff is higher overfitting risk, which we mitigate with early stopping, cross-validation, and regularization parameters like min_child_samples."
+
+### Understanding Evaluation Metrics
+
+#### For Classification: The Confusion Matrix
+
+```
+                        Predicted
+                    Positive    Negative
+                  ┌───────────┬───────────┐
+Actual Positive   │    TP     │    FN     │
+                  │  (Hit!)   │ (Missed!) │
+                  ├───────────┼───────────┤
+Actual Negative   │    FP     │    TN     │
+                  │(False Alarm)│(Correct) │
+                  └───────────┴───────────┘
+
+TP = True Positive  → Predicted IT job, Actually IT job ✅
+TN = True Negative  → Predicted NOT IT, Actually NOT IT ✅
+FP = False Positive → Predicted IT job, Actually Finance ❌ (Type I Error)
+FN = False Negative → Predicted Finance, Actually IT ❌ (Type II Error)
+```
+
+**Derived Metrics:**
+
+| Metric | Formula | Plain English | When to Use |
+|--------|---------|---------------|-------------|
+| **Accuracy** | (TP+TN) / All | "% of all predictions correct" | Balanced classes only |
+| **Precision** | TP / (TP+FP) | "When I say positive, how often am I right?" | Cost of FP is high (spam filter) |
+| **Recall** | TP / (TP+FN) | "Of all actual positives, how many did I find?" | Cost of FN is high (cancer detection) |
+| **F1 Score** | 2×P×R / (P+R) | "Balance of precision and recall" | Imbalanced classes |
+| **F1 Macro** | Average F1 across all classes | "Equal weight to all classes" | Multi-class, care about minority |
+| **F1 Weighted** | Weighted average by class size | "Proportional to class frequency" | Multi-class, care about majority |
+
+**Example:**
+- 100 IT jobs, 10 Finance jobs
+- Model predicts all as IT → Accuracy = 91% (misleading!)
+- F1 Macro = 0.45 (honest, shows Finance performance is bad)
+
+#### For Regression: Error Metrics
+
+| Metric | Formula | Plain English | Interpretation |
+|--------|---------|---------------|----------------|
+| **RMSE** | √(Σ(y-ŷ)²/n) | "Average error, penalizing big mistakes" | RMSE=$1500 → typical error is $1500 |
+| **MAE** | Σ\|y-ŷ\|/n | "Average absolute error" | MAE=$1000 → average miss by $1000 |
+| **R²** | 1 - (SS_res/SS_tot) | "% of variance explained" | R²=0.7 → model explains 70% of salary variation |
+| **MAPE** | Σ(\|y-ŷ\|/y)/n × 100 | "Average % error" | MAPE=10% → typically off by 10% |
+
+**Our Targets:**
+- RMSE < $1,500 → "Predictions typically within $1,500 of actual salary"
+- R² > 0.7 → "Model explains 70%+ of why salaries differ"
+- F1 Macro > 0.6 → "Balanced performance across all job categories"
+
+### Understanding Clustering Metrics
+
+#### Why KMeans Over Other Algorithms?
+
+| Algorithm | KMeans ✅ | DBSCAN | Hierarchical | GMM |
+|-----------|----------|--------|--------------|-----|
+| **Requires k?** | ✅ Must specify | ❌ Auto-detects | ❌ Dendrogram | ✅ Must specify |
+| **Cluster Shape** | Spherical only | Any shape | Any shape | Elliptical |
+| **Speed** | ⚡ O(n×k×i) | O(n²) | O(n³) | Medium |
+| **Outlier Handling** | ❌ Assigns all points | ✅ Labels as noise | ❌ Assigns all | ✅ Low probability |
+| **Scalability** | ✅ Millions | Medium | ❌ Thousands | Medium |
+| **Interpretability** | ✅ Clear centers | Medium | ✅ Tree structure | Probabilities |
+
+**Why KMeans for job embeddings:**
+1. **SBERT creates spherical-ish clusters** - Embeddings are normalized, work well with cosine/euclidean
+2. **Scalable** - Works on 100K+ jobs easily
+3. **Interpretable** - Each cluster has a "centroid" (average job in that cluster)
+4. **Simple to explain** - "Jobs closest to this center belong to this cluster"
+
+#### Silhouette Score Explained
+
+```
+For each data point i:
+  a(i) = average distance to OTHER points in SAME cluster (cohesion)
+  b(i) = average distance to points in NEAREST OTHER cluster (separation)
+  
+  silhouette(i) = (b(i) - a(i)) / max(a(i), b(i))
+  
+  Overall silhouette = average across all points
+```
+
+**Interpretation:**
+
+| Score | Meaning |
+|-------|---------|
+| +1.0 | Perfect! Point is far from other clusters, close to own cluster |
+| +0.5 to +1.0 | Strong clustering structure |
+| +0.3 to +0.5 | Reasonable clustering ← Our target |
+| 0.0 | Point is on boundary between clusters |
+| -1.0 | Wrong cluster! Point is closer to another cluster |
+
+**Learning Result:** "Silhouette score measures how similar a point is to its own cluster compared to other clusters. A score of 0.4 means points are reasonably well-clustered but there's some overlap - which is expected for job postings since a 'Data Engineer' might legitimately belong to both 'Tech' and 'Data Science' clusters."
 
 ## 3C.1: Salary Prediction (Regression)
 
@@ -386,6 +683,83 @@ Can upgrade to Vertex AI embeddings later for production.
 # Phase 3D: Model Artifacts & Deployment
 
 **Goal:** Save, version, and deploy trained models.
+
+## 3D.0: Conceptual Understanding
+
+### What Do We Deploy? Where?
+
+**Deployment Flow:**
+```
+LOCAL DEVELOPMENT                     PRODUCTION
+─────────────────                     ──────────────────────────
+Train model locally          →        Save to GCS (versioned)
+Evaluate metrics                      gs://bucket/models/salary_predictor/v1/
+                                              ↓
+                                      Load in Cloud Function/FastAPI
+                                              ↓
+                                      Serve predictions via API
+                                              ↓
+                                      Write results to BigQuery
+```
+
+**Deployment Options:**
+
+| Option | Use Case | Cost | Latency | Our Choice |
+|--------|----------|------|---------|------------|
+| **Cloud Function** | Batch predictions | Free tier | 1-5s cold start | ✅ Daily batch |
+| **FastAPI on Cloud Run** | Real-time API | ~$5/month | 100ms warm | ✅ API layer |
+| **Vertex AI Endpoint** | Production serving | $50+/month | 50ms | ❌ Too expensive for now |
+
+**Our Strategy:**
+- **Batch predictions:** Cloud Function runs daily, processes new jobs, writes to BigQuery
+- **Real-time API:** FastAPI loads model from GCS, serves predictions on-demand
+- **Vertex AI:** Use for monitoring dashboards, not hosting (cost reasons)
+
+### What Do We Schedule Daily?
+
+**NOT model training!** Training is occasional (weekly/monthly).
+
+**Daily Schedule:**
+
+| Time | Task | What Happens |
+|------|------|--------------|
+| 6:00 AM | Scraping | Cloud Run scrapes new jobs → GCS |
+| 6:30 AM | ETL | Cloud Function processes → BigQuery |
+| 7:00 AM | **Embedding Generation** | Generate embeddings for NEW jobs only |
+| 7:30 AM | **Batch Predictions** | Predict salary/cluster for NEW jobs only |
+
+**Model Retraining Schedule:**
+
+| Strategy | When to Retrain | Pros | Cons |
+|----------|-----------------|------|------|
+| **Calendar-based** | Every Sunday | Simple, predictable | May retrain unnecessarily |
+| **Performance-based** ✅ | When accuracy drops | Efficient | Needs monitoring |
+| **Continuous** | Every new batch | Always fresh | Expensive, risky |
+
+**Our Approach (Performance-based):**
+```python
+# Pseudo-code for monitoring
+current_accuracy = evaluate_on_holdout_set()
+if current_accuracy < threshold:
+    trigger_retraining()
+    alert_team()
+```
+
+### What Model Artifacts Do We Save?
+
+```
+/models/salary_predictor/v1/
+├── model.joblib          # Serialized LightGBM model
+├── config.json           # Hyperparameters used
+├── metrics.json          # Evaluation results (RMSE, R², etc.)
+├── feature_names.json    # Column names in expected order
+└── training_metadata.json # Date, data version, etc.
+```
+
+**Why version models?**
+- Rollback if new model performs worse
+- A/B testing between versions
+- Audit trail for compliance
 
 ## 3D.1: Model Serialization
 
@@ -530,3 +904,69 @@ joblib==1.3.2
 - [ ] Models saved to GCS with versioning
 - [ ] Predictions written to BigQuery
 - [ ] All tests passing
+
+---
+
+# 🎯 Final Deliverables Summary
+
+## What You'll Have Built
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ SINGAPORE JOB MARKET INTELLIGENCE PLATFORM                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│ 1. SALARY PREDICTOR                                                         │
+│    Model: LightGBM regression                                               │
+│    Input: Job title + description + location + work type + embeddings       │
+│    Output: Predicted monthly salary (SGD)                                   │
+│    Accuracy: RMSE < $1,500, R² > 0.7                                        │
+│    Use Case: "How much should this job pay?"                                │
+│                                                                             │
+│ 2. JOB SIMILARITY SEARCH                                                    │
+│    Model: Sentence-BERT (all-MiniLM-L6-v2) + BigQuery Vector Search         │
+│    Input: Job description or search query                                   │
+│    Output: Top-10 semantically similar jobs                                 │
+│    Use Case: "Find jobs similar to this one"                                │
+│                                                                             │
+│ 3. JOB CLUSTERING                                                           │
+│    Model: KMeans on 384-dim SBERT embeddings                                │
+│    Input: All job embeddings                                                │
+│    Output: 8-12 clusters with human-readable labels                         │
+│    Metrics: Silhouette Score > 0.3                                          │
+│    Use Case: "What job categories exist in Singapore market?"               │
+│                                                                             │
+│ 4. ROLE CLASSIFIER                                                          │
+│    Model: LightGBM multi-class classification                               │
+│    Input: Job title + description embeddings                                │
+│    Output: Job category (IT, Finance, Healthcare, etc.)                     │
+│    Accuracy: F1 Macro > 0.6                                                 │
+│    Use Case: "What category does this job belong to?"                       │
+│                                                                             │
+│ 5. RAG CHATBOT (Phase 4 - GenAI)                                            │
+│    Model: Gemini Pro + LangChain + SBERT embeddings                         │
+│    Input: Natural language questions                                        │
+│    Output: Answers grounded in real Singapore job data                      │
+│    Use Case: "What skills are most in demand for Data Scientists in SG?"    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Some Portfolio Statement
+
+> "I built an end-to-end job market intelligence platform that scrapes 10,000+ jobs daily from JobStreet and MyCareersFuture, generates semantic embeddings using Sentence-BERT (all-MiniLM-L6-v2), predicts salaries with LightGBM (RMSE < $1,500), and clusters jobs into meaningful categories using KMeans. 
+>
+> I chose LightGBM over XGBoost for its native categorical handling and leaf-wise tree growth which is faster for our feature set. I stored embeddings in BigQuery rather than a dedicated vector database to leverage existing infrastructure and enable SQL analytics on the same data.
+>
+> The system uses event-driven ETL with Cloud Functions, achieving 100% reliability on 5,800+ jobs tested. I built everything from scratch first to understand the internals, then compared against Vertex AI AutoML for validation."
+
+## Technical Skills Demonstrated
+
+| Category | Skills | Evidence |
+|----------|--------|----------|
+| **NLP** | Embeddings, Transformers, Semantic Search | SBERT implementation, vector indexing |
+| **ML** | Regression, Classification, Clustering | LightGBM, KMeans, evaluation metrics |
+| **Data Engineering** | ETL, BigQuery, Streaming | Cloud Functions, append-only design |
+| **MLOps** | Model versioning, Batch inference | GCS registry, scheduled predictions |
+| **Cloud** | GCP services | Cloud Run, Cloud Functions, BigQuery |
+| **Software Engineering** | Clean code, Testing | Modular design, unit/integration tests |
