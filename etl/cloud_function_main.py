@@ -244,7 +244,7 @@ def stage2_transform_to_cleaned(
     source: str,
     scrape_timestamp: datetime,
     settings: Settings,
-    batch_size: int = 20,
+    batch_size: int = 500,
 ) -> Dict[str, Any]:
     """Stage 2: Transform raw_jobs to cleaned_jobs.
     
@@ -258,7 +258,7 @@ def stage2_transform_to_cleaned(
         source: Source name ('jobstreet' or 'mcf')
         scrape_timestamp: Timestamp of the scrape run to process
         settings: Configuration settings
-        batch_size: Number of rows to process per batch (default: 20)
+        batch_size: Number of rows to process per batch (default: 500)
         
     Returns:
         Result dictionary with statistics
@@ -366,8 +366,8 @@ def stage2_transform_to_cleaned(
         else:
             skipped_count += 1
         
-        # Log progress every 20 rows
-        if idx % 20 == 0:
+        # Log progress every 500 rows
+        if idx % 500 == 0:
             logger.info(f"[Stage 2] Transformed {idx}/{total_raw_rows} rows...")
     
     transformed_count = len(transformed_jobs)
@@ -395,8 +395,8 @@ def stage2_transform_to_cleaned(
         # Convert dataclass to dict
         row_dict = {
             "source": cleaned_job.source,
-            "scrape_timestamp": cleaned_job.scrape_timestamp.isoformat(),
-            "bq_timestamp": cleaned_job.bq_timestamp.isoformat(),
+            "scrape_timestamp": cleaned_job.scrape_timestamp,  # Keep as datetime object
+            "bq_timestamp": cleaned_job.bq_timestamp,  # Keep as datetime object
             
             "job_id": cleaned_job.job_id,
             "job_url": cleaned_job.job_url,
@@ -412,7 +412,7 @@ def stage2_transform_to_cleaned(
             "job_salary_min_sgd_monthly": cleaned_job.job_salary_min_sgd_monthly,
             "job_salary_max_sgd_monthly": cleaned_job.job_salary_max_sgd_monthly,
             "job_currency": cleaned_job.job_currency,
-            "job_posted_timestamp": cleaned_job.job_posted_timestamp.isoformat(),
+            "job_posted_timestamp": cleaned_job.job_posted_timestamp,  # Keep as datetime object
             
             "company_id": cleaned_job.company_id,
             "company_url": cleaned_job.company_url,
