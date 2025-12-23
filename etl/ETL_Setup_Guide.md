@@ -156,7 +156,7 @@ cp requirements.txt .deploy_temp/requirements.txt
 ```bash
 gcloud functions delete etl-gcs-to-bigquery --region=asia-southeast1 --gen2 --quiet
 
-gcloud functions deploy etl-gcs-to-bigquery --gen2 --runtime=python313 --region=asia-southeast1 --source=.deploy_temp --entry-point=etl_gcs_to_bigquery --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" --trigger-event-filters="bucket=sg-job-market-data" --memory=512MB --timeout=540s --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com --set-env-vars="GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1"
+gcloud functions deploy etl-gcs-to-bigquery --gen2 --runtime=python313 --region=asia-southeast1 --source=.deploy_temp --entry-point=etl_gcs_to_bigquery --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" --trigger-event-filters="bucket=sg-job-market-data" --memory=512MB --timeout=540s --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com --set-env-vars="GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1,GCS_BUCKET=sg-job-market-data"
 ```
 
 **Step 3: Cleanup**
@@ -310,7 +310,7 @@ gcloud projects add-iam-policy-binding sg-job-market \
 **Solutions:**
 ```bash
 # 1. Increase timeout (max 3600s)
-gcloud functions deploy etl-gcs-to-bigquery --gen2 --runtime=python313 --region=asia-southeast1 --source=.deploy_temp --entry-point=etl_gcs_to_bigquery --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" --trigger-event-filters="bucket=sg-job-market-data" --memory=512MB --timeout=3600s --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com --set-env-vars="GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1"
+gcloud functions deploy etl-gcs-to-bigquery --gen2 --runtime=python313 --region=asia-southeast1 --source=.deploy_temp --entry-point=etl_gcs_to_bigquery --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" --trigger-event-filters="bucket=sg-job-market-data" --memory=512MB --timeout=3600s --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com --set-env-vars="GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1,GCS_BUCKET=sg-job-market-data"
 
 # 2. Reduce batch size in cloud_function_main.py
 BATCH_SIZE = 250  # Default: 500
@@ -321,7 +321,7 @@ BATCH_SIZE = 250  # Default: 500
 **Solutions:**
 ```bash
 # Increase memory to 1GB
-gcloud functions deploy etl-gcs-to-bigquery --gen2 --runtime=python313 --region=asia-southeast1 --source=.deploy_temp --entry-point=etl_gcs_to_bigquery --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" --trigger-event-filters="bucket=sg-job-market-data" --memory=1024MB --timeout=600s --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com --set-env-vars="GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1"
+gcloud functions deploy etl-gcs-to-bigquery --gen2 --runtime=python313 --region=asia-southeast1 --source=.deploy_temp --entry-point=etl_gcs_to_bigquery --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" --trigger-event-filters="bucket=sg-job-market-data" --memory=1024MB --timeout=600s --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com --set-env-vars="GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1,GCS_BUCKET=sg-job-market-data"
 ```
 
 ### Duplicate Rows
@@ -406,7 +406,7 @@ cp -r utils/ .deploy_temp/utils/
 cp requirements.txt .deploy_temp/requirements.txt
 
 # Redeploy
-gcloud functions deploy etl-gcs-to-bigquery --gen2 --runtime=python313 --region=asia-southeast1 --source=.deploy_temp --entry-point=etl_gcs_to_bigquery --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" --trigger-event-filters="bucket=sg-job-market-data" --memory=512MB --timeout=600s --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com --set-env-vars="GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1"
+gcloud functions deploy etl-gcs-to-bigquery --gen2 --runtime=python313 --region=asia-southeast1 --source=.deploy_temp --entry-point=etl_gcs_to_bigquery --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" --trigger-event-filters="bucket=sg-job-market-data" --memory=512MB --timeout=600s --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com --set-env-vars="GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1,GCS_BUCKET=sg-job-market-data"
 
 # Cleanup
 rm -rf .deploy_temp

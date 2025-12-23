@@ -63,7 +63,7 @@ Write-Host "=============================================" -ForegroundColor Gree
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1. Run the deployment command:" -ForegroundColor White
-Write-Host "     gcloud functions deploy etl-gcs-to-bigquery --gen2 --runtime=python313 --region=asia-southeast1 --source=.deploy_temp --entry-point=etl_gcs_to_bigquery --trigger-event-filters=`"type=google.cloud.storage.object.v1.finalized`" --trigger-event-filters=`"bucket=sg-job-market-data`" --memory=512MB --timeout=540s --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com --set-env-vars=`"GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1`"" -ForegroundColor Gray
+Write-Host "     gcloud functions deploy etl-gcs-to-bigquery --gen2 --runtime=python313 --region=asia-southeast1 --source=.deploy_temp --entry-point=etl_gcs_to_bigquery --trigger-event-filters=`"type=google.cloud.storage.object.v1.finalized`" --trigger-event-filters=`"bucket=sg-job-market-data`" --memory=512MB --timeout=540s --service-account=GCP-general-sa@sg-job-market.iam.gserviceaccount.com --set-env-vars=`"GCP_PROJECT_ID=sg-job-market,BIGQUERY_DATASET_ID=sg_job_market,GCP_REGION=asia-southeast1,GCS_BUCKET=sg-job-market-data`"" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  2. After deployment, cleanup:" -ForegroundColor White
 Write-Host "     Remove-Item -Recurse -Force .deploy_temp" -ForegroundColor Gray
