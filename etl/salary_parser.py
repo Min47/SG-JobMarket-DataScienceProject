@@ -26,10 +26,13 @@ from typing import Optional, Tuple
 
 @dataclass(frozen=True, slots=True)
 class SalaryRange:
-    """Normalized salary range."""
+    """Normalized salary range with both raw and monthly values."""
 
-    min_monthly_sgd: Optional[float]
-    max_monthly_sgd: Optional[float]
+    min_raw_sgd: Optional[float]  # Raw value from posting
+    max_raw_sgd: Optional[float]  # Raw value from posting
+    salary_period: str  # hourly, daily, monthly, yearly
+    min_monthly_sgd: Optional[float]  # Converted to monthly
+    max_monthly_sgd: Optional[float]  # Converted to monthly
     currency: str = "SGD"
 
 
@@ -234,24 +237,39 @@ def parse_salary_text(salary_text: str) -> SalaryRange:
         salary_text: Raw salary string from job posting
         
     Returns:
-        SalaryRange with monthly SGD values
+        SalaryRange with both raw and monthly SGD values
         
     Examples:
         >>> parse_salary_text("$3000 - $5000 per month")
-        SalaryRange(min_monthly_sgd=3000.0, max_monthly_sgd=5000.0, currency='SGD')
+        SalaryRange(min_raw_sgd=3000.0, max_raw_sgd=5000.0, salary_period='monthly', 
+                    min_monthly_sgd=3000.0, max_monthly_sgd=5000.0, currency='SGD')
         >>> parse_salary_text("$60000 per year")
-        SalaryRange(min_monthly_sgd=5000.0, max_monthly_sgd=5000.0, currency='SGD')
+        SalaryRange(min_raw_sgd=60000.0, max_raw_sgd=60000.0, salary_period='yearly',
+                    min_monthly_sgd=5000.0, max_monthly_sgd=5000.0, currency='SGD')
         >>> parse_salary_text("Competitive")
-        SalaryRange(min_monthly_sgd=None, max_monthly_sgd=None, currency='SGD')
+        SalaryRange(min_raw_sgd=None, max_raw_sgd=None, salary_period='',
+                    min_monthly_sgd=None, max_monthly_sgd=None, currency='SGD')
     """
     min_raw, max_raw, period = parse_salary_range(salary_text)
     
     if min_raw is None or max_raw is None:
-        return SalaryRange(min_monthly_sgd=None, max_monthly_sgd=None)
+        return SalaryRange(
+            min_raw_sgd=None,
+            max_raw_sgd=None,
+            salary_period='',
+            min_monthly_sgd=None,
+            max_monthly_sgd=None
+        )
     
     # Convert to monthly
     min_monthly = convert_to_monthly(min_raw, period)
     max_monthly = convert_to_monthly(max_raw, period)
     
-    return SalaryRange(min_monthly_sgd=min_monthly, max_monthly_sgd=max_monthly)
+    return SalaryRange(
+        min_raw_sgd=min_raw,
+        max_raw_sgd=max_raw,
+        salary_period=period,
+        min_monthly_sgd=min_monthly,
+        max_monthly_sgd=max_monthly
+    )
 

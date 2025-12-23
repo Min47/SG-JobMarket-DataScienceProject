@@ -29,41 +29,55 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+def safe_get(obj: Any, key: str, default: Any = None) -> Any:
+    """Safely get value from dict, handling None values.
+    
+    Problem: dict.get(key, default) returns the VALUE even if it's None.
+    This helper treats None values the same as missing keys.
+    
+    Args:
+        obj: Dictionary or None
+        key: Key to get
+        default: Default value if key missing or value is None
+    
+    Returns:
+        Value from dict, or default if key missing or value is None
+    """
+    if obj is None:
+        return default
+    value = obj.get(key, default)
+    return default if value is None else value
+
+
+# =============================================================================
 # Field Extraction Helpers (Source-Specific)
 # =============================================================================
 
 def extract_jobstreet_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Extract fields from JobStreet payload JSON.
     
-    JobStreet structure (GraphQL response):
+    **IMPORTANT**: Payload structure has TWO formats:
+    
+    Format 1 (New - with 'raw' wrapper):
         {
-            "job": {
-                "id": "89284778",
-                "title": "Program Manager, Global Building Infrastructure Protection Services",
-                "content": "<p>Job description HTML</p>",
-                "shareLink": "https://sg.jobstreet.com/job/89284778?tracking=SHR-WEB-SharedJob-asia-7",
-                "listedAt": {"dateTimeUtc": "2025-12-22T12:57:42.384Z"},
-                "salary": {"label": "$5000 - $7000 per month"},
-                "workTypes": {"label": "Full Time"},
-                "advertiser": {"name": "ABC Corp Pte Ltd"},
-                "tracking": {
-                    "locationInfo": {"location": "Central"},
-                    "classificationInfo": {
-                        "classification": "Information Technology",
-                        "subClassification": "Data Science"
-                    }
-                }
-            },
-            "companyProfile": {
-                "id": "168550267780768",
-                "overview": {
-                    "description": {"paragraphs": ["Para 1", "Para 2"]},
-                    "industry": "Information & Communication Technology",
-                    "size": {"description": "More than 10,000 employees"}
-                }
-            },
-            "companySearchUrl": "https://..."
+            "title": "...",  # Pre-processed
+            "company": "...",
+            "raw": {  # ← Actual GraphQL data is here
+                "job": {...},
+                "companyProfile": {...}
+            }
         }
+    
+    Format 2 (Old - direct GraphQL):
+        {
+            "job": {...},
+            "companyProfile": {...}
+        }
+    
+    This function handles BOTH formats.
     
     Args:
         payload: Raw JobStreet JSON payload
@@ -71,15 +85,41 @@ def extract_jobstreet_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary of extracted fields
     """
-    job = payload.get('job', {})
-    company_profile = payload.get('companyProfile', {})
+    # Handle both payload formats
+    if 'raw' in payload and isinstance(payload['raw'], dict):
+        # New format: actual data is nested under 'raw' key
+        data = payload['raw']
+        logger.debug("Using new payload format (with 'raw' wrapper)")
+    else:
+        # Old format: payload IS the GraphQL data
+        data = payload
+        logger.debug("Using old payload format (direct GraphQL)")
+    
+    # Extract job and handle None values (JSON has null, .get() returns None)
+    job = data.get('job', {})
+    logger.debug(f"Job extraction: type={type(job)}, value={'None' if job is None else 'dict'}")
+    if job is None:
+        logger.warning("Job is None, converting to empty dict")
+        job = {}
+    
+    company_profile = data.get('companyProfile', {})
+    if company_profile is None:
+        company_profile = {}
+    
     overview = company_profile.get('overview', {})
+    if overview is None:
+        overview = {}
+    
+    # Handle case where job dict is empty (no data available)
+    if not job:
+        logger.warning(f"JobStreet payload has no 'job' key or job is None/empty")
+        return {}
     
     # Job classification (combine classification + subClassification)
-    tracking = job.get('tracking', {})
-    classification_info = tracking.get('classificationInfo', {})
-    classification = classification_info.get('classification', '')
-    sub_classification = classification_info.get('subClassification', '')
+    tracking = safe_get(job, 'tracking', {})
+    classification_info = safe_get(tracking, 'classificationInfo', {})
+    classification = safe_get(classification_info, 'classification', '')
+    sub_classification = safe_get(classification_info, 'subClassification', '')
     
     if classification and sub_classification:
         full_classification = f"{classification} - {sub_classification}"
@@ -87,27 +127,27 @@ def extract_jobstreet_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         full_classification = classification or sub_classification or ''
     
     # Company description (join paragraphs)
-    desc_obj = overview.get('description', {})
-    company_desc_paragraphs = desc_obj.get('paragraphs', []) if isinstance(desc_obj, dict) else []
+    desc_obj = safe_get(overview, 'description', {})
+    company_desc_paragraphs = safe_get(desc_obj, 'paragraphs', []) if isinstance(desc_obj, dict) else []
     company_description = '\n\n'.join(company_desc_paragraphs) if company_desc_paragraphs else ''
     
     return {
-        'job_id': str(job.get('id', '')),
-        'job_url': job.get('shareLink', ''),
-        'job_title': job.get('title', ''),
-        'job_description': job.get('content', ''),  # Raw HTML
-        'job_location': tracking.get('locationInfo', {}).get('location', ''),
+        'job_id': str(safe_get(job, 'id', '')),
+        'job_url': safe_get(job, 'shareLink', ''),
+        'job_title': safe_get(job, 'title', ''),
+        'job_description': safe_get(job, 'content', ''),  # Raw HTML
+        'job_location': safe_get(safe_get(tracking, 'locationInfo', {}), 'location', ''),
         'job_classification': full_classification,
-        'job_work_type': job.get('workTypes', {}).get('label', ''),
-        'job_salary_text': job.get('salary', {}).get('label', ''), # Raw salary text
-        'job_posted_timestamp': job.get('listedAt', {}).get('dateTimeUtc'),
+        'job_work_type': safe_get(safe_get(job, 'workTypes', {}), 'label', ''),
+        'job_salary_text': safe_get(safe_get(job, 'salary', {}), 'label', ''), # Raw salary text
+        'job_posted_timestamp': safe_get(safe_get(job, 'listedAt', {}), 'dateTimeUtc'),
         
-        'company_id': str(company_profile.get('id', '')),
-        'company_url': payload.get('companySearchUrl', ''),
-        'company_name': job.get('advertiser', {}).get('name', ''),
+        'company_id': str(safe_get(company_profile, 'id', '')),
+        'company_url': safe_get(data, 'companySearchUrl', ''),  # Use 'data' not 'payload'
+        'company_name': safe_get(safe_get(job, 'advertiser', {}), 'name', ''),
         'company_description': company_description,
-        'company_industry': overview.get('industry', ''),
-        'company_size': overview.get('size', {}).get('description', ''),
+        'company_industry': safe_get(overview, 'industry', ''),
+        'company_size': safe_get(safe_get(overview, 'size', {}), 'description', ''),
     }
 
 
@@ -251,7 +291,7 @@ def transform_raw_to_cleaned(raw_job: RawJob) -> Optional[CleanedJob]:
     6. Builds CleanedJob dataclass
     
     Args:
-        raw_job: RawJob from raw_jobs table
+        raw_job: RawJob from raw_jobs table (can be dict or RawJob object)
         
     Returns:
         CleanedJob ready for BigQuery, or None if transformation fails
@@ -260,18 +300,30 @@ def transform_raw_to_cleaned(raw_job: RawJob) -> Optional[CleanedJob]:
         No exceptions raised - logs errors and returns None
     """
     try:
-        # Step 1: Extract fields based on source
-        if raw_job.source.lower() == 'jobstreet':
-            fields = extract_jobstreet_fields(raw_job.payload)
-        elif raw_job.source.lower() == 'mcf':
-            fields = extract_mcf_fields(raw_job.payload)
+        # Handle both dict and RawJob object
+        if isinstance(raw_job, dict):
+            source = raw_job['source']
+            job_id = raw_job['job_id']
+            payload = raw_job['payload']
+            scrape_timestamp = raw_job['scrape_timestamp']
         else:
-            logger.warning(f"Unknown source: {raw_job.source}, skipping")
+            source = raw_job.source
+            job_id = raw_job.job_id
+            payload = raw_job.payload
+            scrape_timestamp = raw_job.scrape_timestamp
+        
+        # Step 1: Extract fields based on source
+        if source.lower() == 'jobstreet':
+            fields = extract_jobstreet_fields(payload)
+        elif source.lower() == 'mcf':
+            fields = extract_mcf_fields(payload)
+        else:
+            logger.warning(f"Unknown source: {source}, skipping")
             return None
         
         # Step 2: Validate required fields
         if not fields.get('job_id') or not fields.get('job_title'):
-            logger.warning(f"Missing required fields (job_id or title) for {raw_job.source}:{raw_job.job_id}")
+            logger.warning(f"Missing required fields (job_id or title) for {source}:{job_id}")
             return None
         
         # Step 3: Clean text fields
@@ -306,13 +358,13 @@ def transform_raw_to_cleaned(raw_job: RawJob) -> Optional[CleanedJob]:
                 logger.warning(f"Could not parse posted timestamp '{posted_timestamp_str}': {e}")
                 job_posted_timestamp = raw_job.scrape_timestamp  # Fallback
         else:
-            job_posted_timestamp = raw_job.scrape_timestamp  # Fallback
+            job_posted_timestamp = scrape_timestamp  # Fallback
         
         # Step 6: Build CleanedJob
         cleaned_job = CleanedJob(
             # Metadata
-            source=raw_job.source,
-            scrape_timestamp=raw_job.scrape_timestamp,
+            source=source,
+            scrape_timestamp=scrape_timestamp,
             bq_timestamp=datetime.now(timezone.utc),
             
             # Job fields
@@ -324,10 +376,10 @@ def transform_raw_to_cleaned(raw_job: RawJob) -> Optional[CleanedJob]:
             job_classification=fields.get('job_classification', ''),
             job_work_type=fields.get('job_work_type', ''),
             
-            # Salary (raw)
-            job_salary_min_sgd_raw=None,  # Will be parsed from salary_text in Stage 2
-            job_salary_max_sgd_raw=None,
-            job_salary_type=fields.get('job_salary_text', ''),  # Store original text for now
+            # Salary (raw values from posting)
+            job_salary_min_sgd_raw=salary_range.min_raw_sgd,
+            job_salary_max_sgd_raw=salary_range.max_raw_sgd,
+            job_salary_type=salary_range.salary_period,  # hourly, daily, monthly, yearly
             
             # Salary (monthly converted)
             job_salary_min_sgd_monthly=salary_range.min_monthly_sgd,
@@ -348,5 +400,8 @@ def transform_raw_to_cleaned(raw_job: RawJob) -> Optional[CleanedJob]:
         return cleaned_job
     
     except Exception as e:
-        logger.error(f"Failed to transform job {raw_job.source}:{raw_job.job_id}: {e}", exc_info=True)
+        # Handle both dict and object for error logging
+        source_str = raw_job['source'] if isinstance(raw_job, dict) else raw_job.source
+        job_id_str = raw_job['job_id'] if isinstance(raw_job, dict) else raw_job.job_id
+        logger.error(f"Failed to transform job {source_str}:{job_id_str}: {e}", exc_info=True)
         return None
