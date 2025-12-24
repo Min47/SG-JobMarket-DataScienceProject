@@ -7,6 +7,10 @@ This script:
 3. Writes embeddings to job_embeddings table
 4. Supports incremental updates (only new jobs)
 
+**Prerequisites:**
+    Run this FIRST to create the table:
+    python -m nlp.setup_embeddings_table
+
 Usage:
     python -m nlp.generate_embeddings --limit 1000
     python -m nlp.generate_embeddings --full
@@ -86,13 +90,15 @@ def get_jobs_to_embed(
 def write_embeddings_to_bq(
     client: Any,
     embeddings_data: List[Dict[str, Any]],
+    batch_size: int = 500,
 ) -> int:
     """
-    Write embeddings to BigQuery using streaming insert.
+    Write embeddings to BigQuery using streaming insert in batches.
 
     Args:
         client: BigQuery client.
         embeddings_data: List of dicts with job_id, source, embedding, model_name.
+        batch_size: Number of rows to insert per batch (default 500).
 
     Returns:
         Number of rows inserted.
@@ -106,15 +112,21 @@ def write_embeddings_to_bq(
     for row in embeddings_data:
         row["created_at"] = timestamp
 
-    # Streaming insert
-    errors = client.insert_rows_json(table_id, embeddings_data)
+    # Insert in batches to avoid timeouts
+    total_inserted = 0
+    for i in range(0, len(embeddings_data), batch_size):
+        batch = embeddings_data[i:i + batch_size]
+        errors = client.insert_rows_json(table_id, batch)
 
-    if errors:
-        logger.error(f"BigQuery insert errors: {errors[:5]}")
-        raise RuntimeError(f"Failed to insert {len(errors)} rows")
+        if errors:
+            logger.error(f"BigQuery insert errors for batch {i//batch_size + 1}: {errors[:5]}")
+            raise RuntimeError(f"Failed to insert {len(errors)} rows in batch {i//batch_size + 1}")
 
-    logger.info(f"Inserted {len(embeddings_data)} embeddings to BigQuery")
-    return len(embeddings_data)
+        total_inserted += len(batch)
+        logger.info(f"Inserted batch {i//batch_size + 1}: {len(batch)} embeddings ({total_inserted}/{len(embeddings_data)} total)")
+
+    logger.info(f"✅ Successfully inserted all {total_inserted} embeddings to BigQuery")
+    return total_inserted
 
 
 def generate_embeddings(
@@ -211,40 +223,6 @@ def generate_embeddings(
     logger.info("=" * 50)
 
     return result
-
-
-def create_embeddings_table(client: Any) -> None:
-    """Create the job_embeddings table if it doesn't exist."""
-    from google.cloud import bigquery
-
-    schema = [
-        bigquery.SchemaField("job_id", "STRING", mode="REQUIRED"),
-        bigquery.SchemaField("source", "STRING", mode="REQUIRED"),
-        bigquery.SchemaField("embedding", "FLOAT64", mode="REPEATED"),
-        bigquery.SchemaField("model_name", "STRING", mode="REQUIRED"),
-        bigquery.SchemaField("created_at", "TIMESTAMP", mode="REQUIRED"),
-    ]
-
-    table_id = f"{PROJECT_ID}.{DATASET_ID}.{TARGET_TABLE}"
-    table = bigquery.Table(table_id, schema=schema)
-
-    # Time partitioning
-    table.time_partitioning = bigquery.TimePartitioning(
-        type_=bigquery.TimePartitioningType.DAY,
-        field="created_at",
-    )
-
-    # Clustering
-    table.clustering_fields = ["source", "model_name"]
-
-    try:
-        table = client.create_table(table)
-        logger.info(f"Created table {table_id}")
-    except Exception as e:
-        if "Already Exists" in str(e):
-            logger.info(f"Table {table_id} already exists")
-        else:
-            raise
 
 
 def main():
