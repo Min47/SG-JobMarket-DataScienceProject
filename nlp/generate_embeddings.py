@@ -23,6 +23,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from setup_embeddings_table import create_embeddings_table
 
 from dotenv import load_dotenv
 
