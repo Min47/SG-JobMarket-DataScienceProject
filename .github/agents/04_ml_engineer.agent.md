@@ -1293,6 +1293,574 @@ if current_accuracy < threshold:
 
 ---
 
+# .py vs .ipynb: When to Use Each?
+
+## Quick Answer
+
+| Aspect | .py Scripts ✅ (Our Production Code) | .ipynb Notebooks |
+|--------|-------------------------------------|------------------|
+| **Use Case** | Production pipelines, APIs, deployment | Exploration, prototyping, analysis |
+| **Version Control** | ✅ Clean diffs, easy to review | ❌ JSON format, messy diffs |
+| **Testing** | ✅ Easy with pytest | ❌ Hard to test |
+| **CI/CD** | ✅ Runs in pipelines | ❌ Requires papermill/nbconvert |
+| **Code Quality** | ✅ Linters, formatters work well | ❌ Limited tool support |
+| **Collaboration** | ✅ Multiple devs can work on same file | ❌ Merge conflicts common |
+| **Debugging** | ✅ Standard debuggers | ❌ Cell execution order issues |
+| **Documentation** | Docstrings + separate docs | ✅ Inline markdown + plots |
+| **Reproducibility** | ✅ Deterministic execution | ❌ Hidden state from cell order |
+
+## Why Our Project Uses .py for Production
+
+**Our Architecture:**
+```
+notebooks/              ← .ipynb for EDA & experimentation
+├── eda_salary.ipynb
+├── cluster_viz.ipynb
+└── prototype_embeddings.ipynb
+
+nlp/                    ← .py for production code
+├── embeddings.py       ✅ Deployed to Cloud Functions
+├── generate_embeddings.py  ✅ CLI for batch jobs
+
+ml/                     ← .py for training pipelines
+├── features.py         ✅ Reusable in API
+├── salary_predictor.py ✅ Can import in FastAPI
+└── train.py            ✅ Runs in scheduled jobs
+```
+
+**Reasons:**
+
+1. **Cloud Deployment** - Cloud Functions require .py modules, not notebooks
+2. **Import-ability** - `from ml.salary_predictor import SalaryPredictor` only works with .py
+3. **Testing** - `pytest tests/test_embeddings.py` needs .py files
+4. **Version Control** - `.py` diffs are readable, `.ipynb` diffs are JSON noise
+5. **Code Reuse** - Same `EmbeddingGenerator` class used by CLI, API, and Cloud Function
+
+## When We DO Use Notebooks
+
+**Exploratory Data Analysis (EDA):**
+```python
+# notebooks/eda_salary.ipynb
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Quick analysis
+df = pd.read_gbq("SELECT * FROM cleaned_jobs LIMIT 1000")
+df.describe()
+df['salary_mid'].hist()
+plt.show()
+
+# Once satisfied, move to .py:
+# ml/features.py → extract_numerical_features()
+```
+
+**Prototype Testing:**
+```python
+# notebooks/prototype_embeddings.ipynb
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
+texts = ["Data Scientist", "Software Engineer"]
+embeddings = model.encode(texts)
+
+# Visualize
+from sklearn.decomposition import PCA
+pca = PCA(n_components=2)
+reduced = pca.fit_transform(embeddings)
+plt.scatter(reduced[:, 0], reduced[:, 1])
+
+# Once working, refactor to .py:
+# nlp/embeddings.py → EmbeddingGenerator class
+```
+
+**Visualization & Reporting:**
+```python
+# notebooks/cluster_viz.ipynb
+# Generate interactive Plotly charts for stakeholders
+# Export as HTML for dashboards
+```
+
+## Best Practice Workflow
+
+```
+EXPLORATION (Notebooks)           PRODUCTION (Scripts)
+──────────────────────            ────────────────────
+1. notebooks/prototype.ipynb  →   2. Refactor to ml/features.py
+   - Try different approaches        - Clean API
+   - Visualize results               - Docstrings
+   - Test hyperparameters            - Error handling
+
+3. notebooks/eda.ipynb        →   4. Production pipeline
+   - Analyze data patterns           - ml/train.py
+   - Identify issues                 - Scheduled jobs
+   - Share insights                  - Logging & monitoring
+```
+
+## Interview Answer
+
+> **"Why .py instead of .ipynb for production ML?"**
+> 
+> "Notebooks are great for exploration—I use them for EDA, prototyping embeddings, and visualizing clusters. But for production pipelines, I use .py modules because:
+> 1. **Cloud Functions require .py** - Can't deploy notebooks directly
+> 2. **Version control** - .py diffs are readable, notebooks are JSON
+> 3. **Testing** - pytest works seamlessly with .py, notebooks need papermill
+> 4. **Reproducibility** - .py scripts execute top-to-bottom deterministically, notebooks have hidden state from cell order
+> 5. **Code reuse** - Same `EmbeddingGenerator` class is imported by CLI, API, and Cloud Function
+> 
+> My workflow: prototype in notebooks, refactor to .py, write tests, then deploy. Best of both worlds."
+
+---
+
+# Phase 4: GenAI & RAG (Agentic Retrieval-Augmented Generation)
+
+**Goal:** Build intelligent job market assistant using LangChain, LangGraph, and Gemini Pro.
+
+**Status:** 🔲 **PENDING** (After Phase 3C completes)
+
+**Dependencies:**
+- ✅ BigQuery with cleaned_jobs and embeddings (from Phase 3A)
+- ✅ Vector search capability (from Phase 3A)
+- 🔲 Trained ML models (Phase 3C)
+- 🔲 FastAPI serving predictions (Phase 3D)
+
+---
+
+## 4.0: RAG Fundamentals
+
+### What is RAG (Retrieval-Augmented Generation)?
+
+**Traditional LLM Problem:**
+```
+User: "What skills are most in-demand for Data Scientists in Singapore?"
+
+GPT-4: "Based on my training data (up to 2023), common skills include Python,
+       machine learning, SQL..."  ← GENERIC, OUTDATED
+```
+
+**RAG Solution:**
+```
+User: "What skills are most in-demand for Data Scientists in Singapore?"
+
+System Flow:
+1. Embed query → [0.21, -0.45, 0.67, ...]
+2. Vector search → Find 10 most similar jobs from our BigQuery
+3. Extract skills from job descriptions → ["Python", "PyTorch", "BigQuery", "MLOps"]
+4. Feed to LLM with context:
+   "Based on these 10 recent Data Scientist jobs in Singapore:
+    Job 1: Requires Python, PyTorch, BigQuery...
+    Job 2: Requires Python, TensorFlow, Docker...
+    ...
+    
+    What skills are most in-demand?"
+
+Gemini Pro: "Based on the current Singapore job market data, the most in-demand
+            skills are:
+            1. Python (100% of jobs)
+            2. PyTorch/TensorFlow (80%)
+            3. BigQuery/Cloud (70%)..."  ← ACCURATE, UP-TO-DATE
+```
+
+**RAG = Retrieval (Vector Search) + Augmentation (Add Context) + Generation (LLM)**
+
+### Why RAG for Job Market Intelligence?
+
+| Without RAG | With RAG ✅ |
+|-------------|------------|
+| LLM answers from training data (outdated) | LLM answers from YOUR fresh data |
+| Generic advice | Singapore-specific insights |
+| Can't answer "what jobs are available" | Can list actual job postings |
+| Hallucinations | Grounded in real data |
+
+**Our RAG Use Cases:**
+1. **Job Recommendations:** "Find me Data Scientist jobs paying >$7K/month in CBD"
+2. **Salary Insights:** "What's the typical salary for Backend Engineers in Singapore?"
+3. **Skill Trends:** "What new skills are Finance companies looking for?"
+4. **Career Advice:** "How do I transition from Data Analyst to Data Scientist?"
+
+---
+
+## 4.1: RAG Architecture (LangChain + LangGraph)
+
+### Why LangChain?
+
+**LangChain = Framework for building LLM applications**
+
+**What it provides:**
+- **Chains:** Link LLM calls with retrieval steps
+- **Memory:** Maintain conversation context
+- **Tools:** Let LLM call external functions (e.g., BigQuery queries)
+- **Vector Store Integration:** Connect to BigQuery Vector Search
+- **Prompt Templates:** Reusable prompt structures
+
+### Why LangGraph?
+
+**LangGraph = State machine for agentic workflows (built on LangChain)**
+
+**What it solves:**
+```
+Simple Chain (LangChain):
+User Query → Retrieve → LLM → Response
+             ↓
+          (Always retrieves, even if not needed)
+
+Agentic Flow (LangGraph):
+User Query → Agent → Decide: Do I need to search?
+                      ├── YES → Retrieve → LLM → Response
+                      └── NO  → LLM → Response
+
+Example:
+"What is machine learning?" → NO retrieval needed (general knowledge)
+"Data Scientist jobs in Jurong?" → YES retrieval needed (specific data)
+```
+
+**LangGraph Features:**
+- **State Management:** Track conversation context across turns
+- **Conditional Routing:** Agent decides next step dynamically
+- **Tool Calling:** Agent can invoke multiple tools (search, predict salary, etc.)
+- **Cycles:** Agent can retry or ask follow-up questions
+
+### Our RAG Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ USER INPUT                                                                  │
+│ "Find me Data Scientist jobs in Singapore paying over $8K/month"            │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ LANGGRAPH AGENT (State Machine)                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ State: { query: "...", retrieved_jobs: [], predictions: [], chat_history }  │
+│                                                                             │
+│ Node 1: QUERY CLASSIFIER                                                    │
+│   → Is this a search query, analysis question, or chat?                     │
+│   → Decide: route to [SEARCH] or [ANALYSIS] or [CHAT]                       │
+│                                                                             │
+│ Node 2: SEARCH AGENT (if search needed)                                     │
+│   → Extract search criteria (role, location, salary)                        │
+│   → Call Tool: BigQuery Vector Search                                       │
+│   → Call Tool: Salary Predictor (if missing)                                │
+│   → Store retrieved_jobs in state                                           │
+│                                                                             │
+│ Node 3: ANALYSIS AGENT (if analysis needed)                                 │
+│   → Call Tool: Aggregate SQL queries (avg salary, top skills)               │
+│   → Store analysis_results in state                                         │
+│                                                                             │
+│ Node 4: RESPONSE GENERATOR                                                  │
+│   → Build prompt with retrieved context                                     │
+│   → Call Gemini Pro with grounded data                                      │
+│   → Return formatted response to user                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ TOOLS (Agent can invoke these)                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Tool 1: vector_search(query: str, filters: dict) → List[Job]                │
+│   → Embeds query with SBERT                                                 │
+│   → Searches BigQuery job_embeddings                                        │
+│   → Returns top-k similar jobs                                              │
+│                                                                             │
+│ Tool 2: predict_salary(job_id: str) → float                                 │
+│   → Loads LightGBM model from GCS                                           │
+│   → Returns predicted salary if missing                                     │
+│                                                                             │
+│ Tool 3: get_skill_trends(role: str, months: int) → List[str]                │
+│   → Queries BigQuery for recent jobs                                        │
+│   → Extracts skills with NER/regex                                          │
+│   → Returns top-10 skills by frequency                                      │
+│                                                                             │
+│ Tool 4: aggregate_salary_stats(role: str, location: str) → Dict             │
+│   → SQL: AVG(salary), PERCENTILE(salary, 0.5), COUNT(*)                     │
+│   → Returns salary statistics                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ GEMINI PRO (LLM)                                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Prompt:                                                                     │
+│ """                                                                         │
+│ You are a Singapore job market expert.                                      │
+│                                                                             │
+│ User Query: "Data Scientist jobs in Singapore paying over $8K/month"        │
+│                                                                             │
+│ Retrieved Jobs:                                                             │
+│ 1. Senior Data Scientist at Google - $10,000/month - Singapore CBD          │
+│ 2. ML Engineer at Grab - $9,500/month - Singapore West                      │
+│ 3. Data Scientist at DBS - $8,500/month - Marina Bay                        │
+│ ...                                                                         │
+│                                                                             │
+│ Based on this data, provide a helpful response to the user.                 │
+│ """                                                                         │
+│                                                                             │
+│ Response: "I found 3 Data Scientist positions paying over $8K/month:        │
+│            1. Google is hiring a Senior Data Scientist for $10K/month..."   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ USER INTERFACE                                                              │
+│ • FastAPI: /chat endpoint (REST API)                                        │
+│ • MCP Server: Expose as tools to Claude/Cursor                              │
+│ • Streamlit: Chat interface with job cards                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 4.2: LangChain vs LangGraph Deep Dive
+
+### LangChain: Linear Chains
+
+**Simple RAG with LangChain:**
+```python
+from langchain.chains import RetrievalQA
+from langchain_google_vertexai import VertexAI
+from langchain.vectorstores import BigQueryVectorSearch
+
+# Setup
+llm = VertexAI(model_name="gemini-pro")
+vectorstore = BigQueryVectorSearch(
+    project_id="sg-job-market",
+    dataset_id="sg_job_market",
+    table_name="job_embeddings"
+)
+
+# Create chain
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    retriever=vectorstore.as_retriever(search_kwargs={"k": 5}),
+    return_source_documents=True
+)
+
+# Use
+response = qa_chain("Data Scientist jobs in Singapore?")
+print(response["result"])
+```
+
+**Limitations:**
+- ❌ Always retrieves, even for general questions
+- ❌ Can't combine multiple tools (search + salary prediction)
+- ❌ No conditional logic
+- ❌ No state management across turns
+
+### LangGraph: Agentic Workflows
+
+**Agentic RAG with LangGraph:**
+```python
+from langgraph.graph import StateGraph, END
+from langchain_core.messages import HumanMessage, AIMessage
+
+# Define state
+class RAGState(TypedDict):
+    messages: List[BaseMessage]
+    query: str
+    needs_search: bool
+    retrieved_jobs: List[dict]
+    predictions: List[float]
+    final_response: str
+
+# Define nodes
+def classify_query(state: RAGState) -> RAGState:
+    """Decide if we need to search or just chat."""
+    query = state["query"]
+    # Use LLM to classify
+    classification = llm.invoke(
+        f"Is this a job search query or general question? '{query}'"
+    )
+    state["needs_search"] = "search" in classification.lower()
+    return state
+
+def search_jobs(state: RAGState) -> RAGState:
+    """Retrieve relevant jobs from BigQuery."""
+    query = state["query"]
+    embeddings = embed_query(query)
+    jobs = bigquery_vector_search(embeddings, top_k=10)
+    state["retrieved_jobs"] = jobs
+    return state
+
+def predict_missing_salaries(state: RAGState) -> RAGState:
+    """Predict salaries for jobs missing salary data."""
+    jobs = state["retrieved_jobs"]
+    for job in jobs:
+        if not job.get("salary"):
+            job["salary_predicted"] = salary_model.predict(job)
+    return state
+
+def generate_response(state: RAGState) -> RAGState:
+    """Generate final response with context."""
+    jobs = state["retrieved_jobs"]
+    prompt = build_prompt(state["query"], jobs)
+    response = llm.invoke(prompt)
+    state["final_response"] = response.content
+    return state
+
+# Build graph
+workflow = StateGraph(RAGState)
+
+# Add nodes
+workflow.add_node("classify", classify_query)
+workflow.add_node("search", search_jobs)
+workflow.add_node("predict", predict_missing_salaries)
+workflow.add_node("respond", generate_response)
+
+# Add edges (conditional routing)
+workflow.set_entry_point("classify")
+workflow.add_conditional_edges(
+    "classify",
+    lambda state: "search" if state["needs_search"] else "respond",
+    {
+        "search": "search",
+        "respond": "respond"
+    }
+)
+workflow.add_edge("search", "predict")
+workflow.add_edge("predict", "respond")
+workflow.add_edge("respond", END)
+
+# Compile
+app = workflow.compile()
+
+# Use
+result = app.invoke({"query": "Data Scientist jobs in Singapore?"})
+print(result["final_response"])
+```
+
+**Advantages:**
+- ✅ Conditional logic (only search if needed)
+- ✅ Multi-tool orchestration (search → predict → respond)
+- ✅ State management (track across conversation turns)
+- ✅ Debuggable (visualize state at each step)
+
+---
+
+## 4.3: Implementation Tasks
+
+### Task 4.3.1: BigQuery Vector Search Integration
+- [ ] Create `genai/retriever.py`:
+  ```python
+  class BigQueryRetriever:
+      def __init__(self, project_id: str, dataset_id: str)
+      def search(self, query: str, top_k: int = 10, filters: dict = None) -> List[Dict]
+      def search_by_embedding(self, embedding: List[float], top_k: int = 10) -> List[Dict]
+  ```
+- [ ] Support filters (salary_min, location, work_type)
+- [ ] Return job data + similarity scores
+
+### Task 4.3.2: LangChain Tools
+- [ ] Create `genai/tools.py`:
+  ```python
+  @tool
+  def search_jobs(query: str, filters: dict) -> List[Dict]:
+      """Search for jobs matching query."""
+      
+  @tool
+  def predict_salary(job_id: str) -> float:
+      """Predict salary for job without salary data."""
+      
+  @tool
+  def get_salary_stats(role: str, location: str) -> Dict:
+      """Get salary statistics for role/location."""
+      
+  @tool
+  def extract_skills(job_ids: List[str]) -> List[str]:
+      """Extract top skills from job descriptions."""
+  ```
+
+### Task 4.3.3: LangGraph Agent
+- [ ] Create `genai/agent.py`:
+  ```python
+  class JobMarketAgent:
+      def __init__(self, llm, tools: List[Tool])
+      def build_graph(self) -> StateGraph
+      def invoke(self, query: str) -> str
+      def stream(self, query: str) -> Iterator[str]
+  ```
+- [ ] Implement nodes: classify, search, analyze, respond
+- [ ] Add conversation memory (last 5 turns)
+
+### Task 4.3.4: Prompt Engineering
+- [ ] Create `genai/prompts.py`:
+  ```python
+  SYSTEM_PROMPT = """
+  You are a Singapore job market expert assistant.
+  
+  Your knowledge is grounded in real-time data from JobStreet and MyCareersFuture.
+  
+  Guidelines:
+  - Use retrieved job data to answer questions
+  - Cite specific jobs when possible
+  - If no relevant jobs found, say so
+  - Provide salary ranges in SGD
+  - Mention job locations
+  """
+  
+  SEARCH_PROMPT = """
+  Based on these {num_jobs} jobs:
+  {job_list}
+  
+  User Question: {query}
+  
+  Provide a helpful response.
+  """
+  ```
+
+### Task 4.3.5: FastAPI Integration
+- [ ] Create `/chat` endpoint:
+  ```python
+  @app.post("/chat")
+  async def chat(request: ChatRequest) -> ChatResponse:
+      response = agent.invoke(request.message)
+      return ChatResponse(message=response)
+  ```
+- [ ] Add streaming endpoint for real-time responses
+- [ ] Add conversation history management
+
+### Task 4.3.6: MCP Server
+- [ ] Create `genai/mcp_server.py`:
+  ```python
+  # Expose job search as MCP tool for Claude/Cursor
+  @mcp.tool()
+  def search_singapore_jobs(query: str) -> List[Dict]:
+      """Search Singapore job market."""
+      
+  @mcp.tool()
+  def get_job_salary_insights(role: str) -> Dict:
+      """Get salary insights for role."""
+  ```
+- [ ] Allow external AI assistants to query our data
+
+---
+
+## 4.4: Evaluation & Testing
+
+### RAG Evaluation Metrics
+
+| Metric | What it Measures | Target |
+|--------|------------------|--------|
+| **Retrieval Precision** | % of retrieved jobs that are relevant | >0.8 |
+| **Retrieval Recall** | % of relevant jobs that were retrieved | >0.7 |
+| **Answer Relevance** | Does LLM answer match user intent? | >0.8 (human eval) |
+| **Faithfulness** | Does answer only use retrieved context? | >0.9 |
+| **Latency** | Time from query to response | <3 seconds |
+
+### Testing Strategy
+
+**Unit Tests:**
+- [ ] Test retriever with known queries
+- [ ] Test tools individually
+- [ ] Test prompt templates
+
+**Integration Tests:**
+- [ ] Test full agent flow
+- [ ] Test with conversation history
+- [ ] Test tool chaining
+
+**Human Evaluation:**
+- [ ] Create test set of 50 questions
+- [ ] Rate answers: Relevant, Accurate, Helpful
+- [ ] Compare to baseline (no RAG)
+
+---
+
 # Testing Strategy
 
 ## Unit Tests
@@ -1300,15 +1868,20 @@ if current_accuracy < threshold:
 - [ ] `tests/test_features.py` - Feature engineering
 - [ ] `tests/test_salary_predictor.py` - Regression model
 - [ ] `tests/test_clustering.py` - Clustering model
+- [ ] `tests/test_retriever.py` - BigQuery vector search
+- [ ] `tests/test_rag_tools.py` - LangChain tools
+- [ ] `tests/test_agent.py` - LangGraph agent
 
 ## Integration Tests
 - [ ] `tests/test_ml_pipeline.py` - End-to-end ML workflow
 - [ ] `tests/test_bq_ml_integration.py` - BigQuery read/write
+- [ ] `tests/test_rag_pipeline.py` - End-to-end RAG workflow
 
 ## Model Validation
 - [ ] Cross-validation with 5 folds
 - [ ] Time-based validation (train on past, test on recent)
 - [ ] A/B testing framework (for future online evaluation)
+- [ ] RAG answer quality evaluation (human eval + automated metrics)
 
 ---
 
@@ -1316,6 +1889,8 @@ if current_accuracy < threshold:
 
 ```txt
 # Add to requirements.txt
+
+# Phase 3: ML/NLP
 sentence-transformers==2.2.2
 scikit-learn==1.3.2
 lightgbm==4.2.0
@@ -1326,6 +1901,12 @@ matplotlib==3.8.2
 seaborn==0.13.0
 plotly==5.18.0
 joblib==1.3.2
+
+# Phase 4: GenAI/RAG
+langchain==0.1.0
+langgraph==0.0.20
+google-cloud-aiplatform==1.38.0
+langchain-google-vertexai==0.1.0
 ```
 
 ---
@@ -1337,18 +1918,31 @@ joblib==1.3.2
 | `/nlp/` | Embeddings | `embeddings.py`, `generate_embeddings.py` |
 | `/ml/` | Training | `features.py`, `salary_predictor.py`, `role_classifier.py`, `clustering.py`, `registry.py`, `predict.py` |
 | `/models/` | Artifacts | `{model_name}/{version}/model.joblib` |
-| `/tests/` | Testing | `test_embeddings.py`, `test_ml_pipeline.py` |
-
----
-
-# Execution Order
-
-| Step | Task | Est. Time | Dependencies |
-|------|------|-----------|--------------|
+| **Phase 3: ML/NLP** | | | |
 | 1 | Install ML dependencies | 5 min | None |
 | 2 | Generate embeddings (3A) | 30 min | cleaned_jobs data |
 | 3 | Create vector index | 10 min | Embeddings |
 | 4 | Feature engineering (3B) | 1 hr | Embeddings |
+| 5 | Train salary predictor (3C.1) | 1 hr | Features |
+| 6 | Train clustering (3C.3) | 30 min | Embeddings |
+| 7 | Train role classifier (3C.2) | 30 min | Features |
+| 8 | Model registry & GCS (3D) | 30 min | All models |
+| 9 | Batch predictions | 30 min | Registry |
+| 10 | Documentation & tests | 1 hr | All |
+| **Phase 4: GenAI/RAG** | | | |
+| 11 | Install GenAI dependencies | 5 min | Phase 3 complete |
+| 12 | BigQuery retriever (4.3.1) | 1 hr | Vector index |
+| 13 | LangChain tools (4.3.2) | 1 hr | Models deployed |
+| 14 | LangGraph agent (4.3.3) | 2 hr | Tools ready |
+| 15 | Prompt engineering (4.3.4) | 1 hr | Agent ready |
+| 16 | FastAPI /chat endpoint (4.3.5) | 1 hr | Agent ready |
+| 17 | MCP Server (4.3.6) | 1 hr | FastAPI ready |
+| 18 | RAG testing & evaluation (4.4) | 2 hr | All |
+
+**Total Estimated Time:** 
+- Phase 3: 6-8 hours
+- Phase 4: 9-11 hours
+- **Overall: 15-19 hours**hr | Embeddings |
 | 5 | Train salary predictor (3C.1) | 1 hr | Features |
 | 6 | Train clustering (3C.3) | 30 min | Embeddings |
 | 7 | Train role classifier (3C.2) | 30 min | Features |
