@@ -219,7 +219,7 @@ You can create a simple visual pipeline with:
 │                                                                                   │
 │ 6. Enrich with Timestamps                                                         │
 │    • scrape_timestamp: From raw_jobs (preserve original)                          │
-│    • bq_timestamp: datetime.utcnow() at transformation time                       │
+│    • bq_timestamp: datetime.now(timezone.utc) at transformation time              │
 │    • job_posted_timestamp: Parsed from payload                                    │
 │                                                                                   │
 │ 7. Stream to BigQuery cleaned_jobs Table                                          │
@@ -400,14 +400,14 @@ def process_gcs_upload(event, context):
   ```python
   import logging
   import json
-  from datetime import datetime
+  from datetime import datetime, timezone
   
   def log_structured(severity: str, message: str, **fields):
       """Log in Cloud Logging JSON format."""
       entry = {
           "severity": severity,
           "message": message,
-          "timestamp": datetime.utcnow().isoformat(),
+          "timestamp": datetime.now(timezone.utc).isoformat(),
           **fields
       }
       print(json.dumps(entry))  # Cloud Functions captures stdout

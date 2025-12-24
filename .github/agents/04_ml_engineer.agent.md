@@ -513,20 +513,36 @@ Can upgrade to Vertex AI embeddings later for production.
 ## 3A.2: Implementation Tasks
 
 ### Task 3A.2.1: Create Embedding Pipeline
-- [ ] Create `nlp/embeddings.py`:
+- [x] Create `nlp/embeddings.py`:
   ```python
   # Core functions to implement:
   def load_model(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransformer
   def embed_texts(texts: List[str], batch_size: int = 32) -> np.ndarray
   def embed_jobs_from_bq(limit: int = None) -> Dict[str, Any]
   ```
-- [ ] Add batched processing (32-64 texts per batch, GPU-aware)
-- [ ] Add progress bar with tqdm
-- [ ] Handle empty/null descriptions gracefully
-- [ ] Log embedding statistics (min, max, mean values)
+- [x] Add batched processing (32-64 texts per batch, GPU-aware)
+- [x] Add progress bar with tqdm
+- [x] Handle empty/null descriptions gracefully:
+  - Combine title + description (fallback to title if description empty)
+  - Convert None to empty string
+  - Filter jobs with both empty title AND description
+  - Truncate descriptions to 1000 characters for efficiency
+- [x] Log embedding statistics (min, max, mean values)
+
+**Empty Description Handling:**
+```python
+# From nlp/generate_embeddings.py
+# Filter out completely empty jobs
+jobs = [j for j in jobs if j['job_title'].strip() or j['job_description'].strip()]
+
+# Combine title + description with fallback
+title = job.get('job_title', 'Unknown').strip()
+description = job.get('job_description', '').strip()[:1000]
+text = f"{title}. {description}" if description else title
+```
 
 ### Task 3A.2.2: BigQuery Schema for Embeddings
-- [ ] Update `utils/schemas.py` with `JobEmbedding` dataclass:
+- [x] Update `utils/schemas.py` with `JobEmbedding` dataclass:
   ```python
   @dataclass
   class JobEmbedding:
@@ -536,18 +552,23 @@ Can upgrade to Vertex AI embeddings later for production.
       model_name: str
       created_at: datetime
   ```
-- [ ] Create `job_embeddings` table in BigQuery
-- [ ] Partition by `created_at`, cluster by `source, job_id`
+- [x] Create `job_embeddings` table in BigQuery
+- [x] Partition by `created_at`, cluster by `source, job_id`
+
+**Schema already defined in `utils/schemas.py` ✅**
 
 ### Task 3A.2.3: Embedding Generation Script
-- [ ] Create `nlp/generate_embeddings.py`:
+- [x] Create `nlp/generate_embeddings.py`:
   - Query `cleaned_jobs` for job_id, job_title, job_description
   - Combine: `f"{title}. {description[:1000]}"` (truncate for efficiency)
   - Generate embeddings in batches
   - Stream to BigQuery `job_embeddings` table
   - Support incremental updates (only embed new jobs)
-- [ ] Add CLI: `.venv/Scripts/python.exe -m nlp.generate_embeddings --limit 1000`
+- [x] Add CLI: `.venv/Scripts/python.exe -m nlp.generate_embeddings --limit 1000`
+- [x] Create setup script: `nlp/setup_embeddings_table.py`
 - [ ] Add tests: `tests/test_embeddings.py`
+
+**Implementation complete, ready to run ✅**
 
 ### Task 3A.2.4: BigQuery Vector Index
 - [ ] Create vector index for similarity search:

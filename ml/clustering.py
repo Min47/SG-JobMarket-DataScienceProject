@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -77,7 +77,7 @@ class JobClusterer:
         )
         labels = self._model.fit_predict(embeddings)
 
-        self._trained_at = datetime.utcnow()
+        self._trained_at = datetime.now(timezone.utc)
 
         # Calculate metrics
         silhouette = silhouette_score(embeddings, labels)

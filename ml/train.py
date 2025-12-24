@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import argparse
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -53,7 +53,7 @@ def train_salary_predictor(
         "mae": 0.0,
         "r2": 0.0,
         "training_samples": 0,
-        "trained_at": datetime.utcnow().isoformat(),
+        "trained_at": datetime.now(timezone.utc).isoformat(),
         "status": "NOT_IMPLEMENTED",
     }
 
@@ -89,7 +89,7 @@ def train_role_classifier(
         "f1_macro": 0.0,
         "f1_weighted": 0.0,
         "num_classes": 0,
-        "trained_at": datetime.utcnow().isoformat(),
+        "trained_at": datetime.now(timezone.utc).isoformat(),
         "status": "NOT_IMPLEMENTED",
     }
 
@@ -126,7 +126,7 @@ def train_job_clusterer(
         "silhouette_score": 0.0,
         "inertia": 0.0,
         "n_clusters": n_clusters,
-        "trained_at": datetime.utcnow().isoformat(),
+        "trained_at": datetime.now(timezone.utc).isoformat(),
         "status": "NOT_IMPLEMENTED",
     }
 

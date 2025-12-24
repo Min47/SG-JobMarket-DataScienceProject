@@ -32,6 +32,12 @@ def _python_type_to_bq_type(python_type: type) -> str:
             # Re-get origin after unwrapping Optional
             origin = get_origin(python_type)
     
+    # Check for List type (for ARRAY columns like embeddings)
+    if origin is list:
+        args = get_args(python_type)
+        if args and args[0] == float:
+            return "FLOAT64"  # Will be wrapped in ARRAY by _dataclass_to_bq_schema
+    
     # Check for Dict type (for JSON columns)
     if origin is dict:
         return "JSON"
@@ -78,6 +84,12 @@ def _dataclass_to_bq_schema(dataclass_type: type) -> List[bigquery.SchemaField]:
         
         mode = "NULLABLE" if is_optional else "REQUIRED"
         bq_type = _python_type_to_bq_type(field_type)
+        
+        # Special handling for List[float] (embeddings) - use REPEATED mode
+        origin = get_origin(field_type)
+        if origin is list:
+            mode = "REPEATED"
+            # bq_type already returns FLOAT64 for List[float]
         
         schema_fields.append(
             bigquery.SchemaField(field_name, bq_type, mode=mode)
@@ -200,3 +212,20 @@ class CleanedJob:
     company_size: str
     # JobStreet: "companyProfile" > "overview" > "size" > "description"
     # MCF: "postedCompany" > "employeeCount"
+
+
+@dataclass(frozen=True, slots=True)
+class JobEmbedding:
+    """Job embedding record produced by embedding generator.
+    
+    This is the SINGLE SOURCE OF TRUTH for job embedding schema.
+    BigQuery `job_embeddings` table schema is auto-generated from this.
+    
+    To modify schema: Add/remove/change fields here only.
+    """
+
+    job_id: str
+    source: str
+    model_name: str  # e.g., "sentence-transformers/all-MiniLM-L6-v2"
+    embedding: List[float]  # EMBEDDING_DIM-dimensional vector, 384 floats, array<FLOAT64>
+    created_at: datetime  # Timestamp of when embedding was created

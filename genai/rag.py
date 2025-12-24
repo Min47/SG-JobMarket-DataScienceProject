@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from google.cloud import bigquery
 from google.cloud import aiplatform
@@ -174,7 +174,7 @@ def rag_pipeline(
             "query": query,
             "retrieved_count": len(retrieved_jobs),
             "relevant_count": len(relevant_jobs),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     }
 

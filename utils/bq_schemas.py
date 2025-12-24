@@ -31,3 +31,10 @@ def cleaned_jobs_schema() -> List[bigquery.SchemaField]:
     """
     return _dataclass_to_bq_schema(CleanedJob)
 
+def job_embeddings_schema() -> List[bigquery.SchemaField]:
+    """Schema for the `job_embeddings` table.
+    
+    Auto-generated from `utils.schemas.JobEmbedding` dataclass.
+    """
+    from utils.schemas import JobEmbedding
+    return _dataclass_to_bq_schema(JobEmbedding)

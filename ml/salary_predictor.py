@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -94,7 +94,7 @@ class SalaryPredictor:
         else:
             raise ValueError(f"Unknown model_type: {self.model_type}")
 
-        self._trained_at = datetime.utcnow()
+        self._trained_at = datetime.now(timezone.utc)
 
         # Evaluate on training data
         train_pred = self.predict(X)

@@ -17,7 +17,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
@@ -102,7 +102,7 @@ def write_embeddings_to_bq(
     table_id = f"{PROJECT_ID}.{DATASET_ID}.{TARGET_TABLE}"
 
     # Add timestamp
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     for row in embeddings_data:
         row["created_at"] = timestamp
 
@@ -154,11 +154,29 @@ def generate_embeddings(
         logger.info("No jobs to embed")
         return {"jobs_processed": 0, "status": "no_jobs"}
 
-    # Prepare texts
-    texts = [
-        f"{job['job_title'] or 'Unknown'}. {job['job_description'] or ''}"
-        for job in jobs
+    # Filter out jobs with both empty title AND description
+    jobs_before_filter = len(jobs)
+    jobs = [
+        j for j in jobs 
+        if (j.get('job_title') or '').strip() or (j.get('job_description') or '').strip()
     ]
+    if len(jobs) < jobs_before_filter:
+        logger.warning(f"Filtered out {jobs_before_filter - len(jobs)} jobs with empty title AND description")
+
+    if not jobs:
+        logger.info("No valid jobs to embed after filtering")
+        return {"jobs_processed": 0, "status": "no_valid_jobs"}
+
+    # Prepare texts (combine title + description, truncate description to 1000 chars)
+    texts = []
+    for job in jobs:
+        title = (job.get('job_title') or 'Unknown').strip()
+        description = (job.get('job_description') or '').strip()[:1000]
+        # Combine with period separator
+        text = f"{title}. {description}" if description else title
+        texts.append(text)
+    
+    logger.info(f"Prepared {len(texts)} texts for embedding")
 
     # Generate embeddings
     logger.info(f"Generating embeddings for {len(texts)} texts...")
