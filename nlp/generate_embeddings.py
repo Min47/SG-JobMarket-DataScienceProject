@@ -23,7 +23,6 @@ import logging
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from setup_embeddings_table import create_embeddings_table
 
 from dotenv import load_dotenv
 
@@ -42,6 +41,7 @@ def get_jobs_to_embed(
     client: Any,
     limit: Optional[int] = None,
     only_new: bool = True,
+    target_date: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
     """
     Query jobs that need embeddings.
@@ -50,6 +50,7 @@ def get_jobs_to_embed(
         client: BigQuery client.
         limit: Maximum jobs to return.
         only_new: If True, only return jobs without embeddings.
+        target_date: If provided, filter jobs scraped on this date (UTC).
 
     Returns:
         List of job dicts with job_id, source, title, description.
@@ -76,11 +77,20 @@ def get_jobs_to_embed(
             SUBSTR(job_description, 1, 2000) as job_description
         FROM `{PROJECT_ID}.{DATASET_ID}.{SOURCE_TABLE}`
         """
+    
+    # Add date filter if specified
+    if target_date:
+        date_str = target_date.strftime("%Y-%m-%d")
+        if only_new:
+            query = query.rstrip() + f" AND DATE(c.scraped_at) = '{date_str}'"
+        else:
+            query = query.rstrip() + f" WHERE DATE(scraped_at) = '{date_str}'"
 
     if limit:
         query += f" LIMIT {limit}"
 
-    logger.info(f"Querying jobs to embed (only_new={only_new}, limit={limit})")
+    date_info = f", target_date={target_date.strftime('%Y-%m-%d')}" if target_date else ""
+    logger.info(f"Querying jobs to embed (only_new={only_new}, limit={limit}{date_info})")
 
     result = client.query(query).result()
     jobs = [dict(row) for row in result]
@@ -135,6 +145,7 @@ def generate_embeddings(
     batch_size: int = 32,
     only_new: bool = True,
     dry_run: bool = False,
+    target_date: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """
     Main embedding generation pipeline.
@@ -144,6 +155,7 @@ def generate_embeddings(
         batch_size: Embedding batch size.
         only_new: Only embed jobs without existing embeddings.
         dry_run: If True, don't write to BigQuery.
+        target_date: If provided, filter jobs scraped on this date (UTC).
 
     Returns:
         Dict with processing statistics.
@@ -153,7 +165,8 @@ def generate_embeddings(
 
     logger.info("=" * 50)
     logger.info("Starting embedding generation pipeline")
-    logger.info(f"  limit={limit}, batch_size={batch_size}, only_new={only_new}")
+    date_info = f", target_date={target_date.strftime('%Y-%m-%d')}" if target_date else ""
+    logger.info(f"  limit={limit}, batch_size={batch_size}, only_new={only_new}{date_info}")
     logger.info("=" * 50)
 
     # Initialize clients
@@ -161,7 +174,7 @@ def generate_embeddings(
     embedding_generator = EmbeddingGenerator()
 
     # Get jobs
-    jobs = get_jobs_to_embed(bq_client, limit=limit, only_new=only_new)
+    jobs = get_jobs_to_embed(bq_client, limit=limit, only_new=only_new, target_date=target_date)
 
     if not jobs:
         logger.info("No jobs to embed")
@@ -218,6 +231,9 @@ def generate_embeddings(
         "model_name": embedding_generator.model_name,
         "status": "success",
     }
+    
+    if target_date:
+        result["target_date"] = target_date.strftime("%Y-%m-%d")
 
     logger.info("=" * 50)
     logger.info(f"Complete: {result}")
@@ -276,6 +292,13 @@ def main():
     # Create table if requested
     if args.create_table:
         from google.cloud import bigquery
+        try:
+            # When running as part of nlp package (CLI)
+            from nlp.setup_embeddings_table import create_embeddings_table
+        except ModuleNotFoundError:
+            # When running in Cloud Function (flat structure)
+            from setup_embeddings_table import create_embeddings_table
+        
         client = bigquery.Client(project=PROJECT_ID)
         create_embeddings_table(client)
 

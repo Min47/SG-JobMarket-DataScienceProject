@@ -21,3 +21,4 @@ logs/
 
 # Temporary deployment folder
 .deploy_temp/
+.deploy_temp_embeddings/

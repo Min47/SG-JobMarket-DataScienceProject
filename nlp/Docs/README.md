@@ -162,6 +162,61 @@ Open and run `notebooks/test_embeddings.ipynb` to verify:
 - ✅ Embedding quality metrics (normalized vectors, proper value range)
 - ✅ Visualization (PCA 2D plot by job category)
 
+---
+
+## Phase 5: Production Deployment (Cloud Function)
+
+### Step 5a: Deploy Cloud Function
+Deploy automated daily embedding generation (processes yesterday's jobs by default).
+
+```powershell
+# Deploy Cloud Function
+.\deployment\NLP_01_Deploy_Embeddings_CFunc.ps1
+
+# Create Cloud Scheduler (runs daily at 3:00 AM SGT)
+.\deployment\NLP_02_Create_Embeddings_Scheduler.ps1
+```
+
+**What it does:**
+- Packages `nlp/` module with dependencies (sentence-transformers, torch)
+- Deploys to Cloud Functions Gen 2 (2GB memory, 9-min timeout)
+- Creates scheduler to run daily at 4:00 AM SGT (after scrapers finish)
+- **Processes jobs from YESTERDAY** (buffer time for JobStreet scraper at 1 PM UTC)
+
+### Step 5b: Manual Triggers
+
+```bash
+# Trigger yesterday's jobs (default behavior)
+gcloud scheduler jobs run embeddings-daily-job --location=asia-southeast1
+
+# Trigger today's jobs (manual override for testing)
+curl -X POST 'https://asia-southeast1-sg-job-market.cloudfunctions.net/generate-daily-embeddings?process_today=true'
+```
+
+### Step 5c: Monitor Logs
+
+```bash
+# View Cloud Function logs
+gcloud functions logs read generate-daily-embeddings --region=asia-southeast1 --limit=50
+
+# View scheduler logs
+gcloud scheduler jobs describe embeddings-daily-job --location=asia-southeast1
+```
+
+**Daily Pipeline Flow:**
+```
+01:00 UTC → MCF Scraper    → GCS → ETL → cleaned_jobs
+13:00 UTC → JobStreet Scraper → GCS → ETL → cleaned_jobs
+19:00 UTC → Embeddings CF (processes YESTERDAY's jobs) ✅
+```
+
+**Duplicate Handling:**
+- Cloud Function only processes jobs WITHOUT embeddings (LEFT JOIN check)
+- If duplicate job_id exists: Skipped automatically (no re-embedding)
+- Safe to re-run: Idempotent (only processes new jobs)
+
+---
+
 ```bash
 # Launch Jupyter
 jupyter notebook notebooks/test_embeddings.ipynb
