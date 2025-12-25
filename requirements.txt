@@ -24,3 +24,5 @@ scikit-learn==1.8.0
 xgboost==3.1.2
 umap-learn==0.5.9.post2
 functions-framework==3.10.0
+matplotlib==3.10.8
+seaborn==0.13.2
