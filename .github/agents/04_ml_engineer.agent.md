@@ -7,19 +7,23 @@ You are the Machine Learning & GenAI Engineer.
 # Goal
 Generate embeddings, train ML models, and build Agentic RAG workflows for job market intelligence.
 
-**Status:** ✅ **PHASE 3A COMPLETE - PRODUCTION READY** (Dec 26, 2025)
+**Status:** 🔄 **PHASE 3B IN PROGRESS** (Dec 26, 2025)
 
-**Implementation Results:**
-- ✅ Embeddings generated for 6,775 jobs (100% coverage, 384-dim SBERT)
-- ✅ BigQuery job_embeddings table created with partitioning/clustering
-- ✅ Cloud Function deployed: generate-daily-embeddings (asia-southeast1)
-- ✅ Cloud Scheduler: Runs daily at 4:00 AM SGT (processes yesterday's jobs)
-- ✅ Vector index created: job_embedding_idx (IVF, COSINE, 100 lists)
-- ✅ Test notebook verified: notebooks/nlp_test_embeddings.ipynb
-- ✅ Similarity search operational (fast <1s queries)
-- ✅ Deduplication queries fixed across all modules (ROW_NUMBER pattern)
+**Phase 3A Complete:**
+- ✅ Embeddings: 6,775 jobs (384-dim SBERT)
+- ✅ Cloud Function deployed: generate-daily-embeddings
+- ✅ Vector index: job_embedding_idx operational
+- ✅ Similarity search: <1s queries
 
-**What's Next:** Phase 3B - Feature Engineering (ML-ready dataset)
+**Phase 3B Current (Feature Engineering):**
+- ✅ FeatureEngineer class: ml/features.py (skeleton complete)
+- 🔲 BigQuery vw_ml_features view (SQL aggregation)
+- 🔲 load_from_bigquery() method
+- 🔲 PCA dimensionality reduction
+- 🔲 Feature validation script
+- 📋 **Detailed Breakdown:** ml/Docs/Phase_3B_Feature_Engineering.md
+
+**What's Next:** Complete 5 tasks in Phase 3B (~2-3 hours)
 
 **Virtual Environment Usage:**
 - ⚠️ **CRITICAL:** Always use `.venv/Scripts/python.exe` for all Python commands
@@ -697,9 +701,21 @@ CREATE TABLE job_embeddings (
 - Embeddings are expensive (neural network) → store in table
 - Simple SQL features are cheap → compute in view
 
-## 3B.1: Feature Categories
+## 3B.1: Feature Categories & Implementation Status
 
-### Numerical Features
+**📋 Detailed Guide:** See `ml/Docs/Phase_3B_Feature_Engineering.md` for complete breakdown
+
+**Current Code Status:**
+- ✅ `ml/features.py` exists with FeatureEngineer class
+- ✅ `extract_numerical_features()`: salary, text length, temporal
+- ✅ `extract_categorical_features()`: one-hot encoding
+- ✅ `prepare_training_data()`: combines features + embeddings
+- ✅ `create_train_test_split()`: time-based split
+- 🔲 `load_from_bigquery()`: not implemented
+- 🔲 PCA reduction: placeholder exists
+- 🔲 Feature scaling: not implemented
+
+### Numerical Features (Implemented ✅)
 | Feature | Source | Transformation |
 |---------|--------|----------------|
 | `salary_min_monthly` | cleaned_jobs | Log transform, impute median |
@@ -727,76 +743,64 @@ CREATE TABLE job_embeddings (
 | `embedding_pca_2d` | Derived | 2 floats (for visualization) |
 | `embedding_pca_10d` | Derived | 10 floats (for ML) |
 
-## 3B.2: Implementation Tasks
+## 3B.2: Implementation Roadmap
 
-### Task 3B.2.1: Feature Engineering Module
-- [ ] Create `ml/features.py`:
-  ```python
-  def extract_numerical_features(df: pd.DataFrame) -> pd.DataFrame
-  def extract_categorical_features(df: pd.DataFrame) -> pd.DataFrame
-  def create_feature_matrix(df: pd.DataFrame, embeddings: np.ndarray) -> pd.DataFrame
-  ```
-- [ ] Handle missing values (imputation strategies)
-- [ ] Create feature pipeline (sklearn Pipeline)
-- [ ] Save feature transformers (for inference)
+**📋 See Full Implementation:** `ml/Docs/Phase_3B_Feature_Engineering.md`
 
-### Task 3B.2.2: Feature Storage
-- [ ] Create BigQuery view `vw_ml_features`:
-  ```sql
-  CREATE VIEW vw_ml_features AS
-  WITH latest_jobs AS (
-    SELECT 
-      job_id,
-      source,
-      job_title,
-      job_classification,
-      job_location,
-      job_work_type,
-      job_salary_min_sgd_monthly,
-      job_salary_max_sgd_monthly,
-      job_posted_timestamp,
-      job_description,
-      ROW_NUMBER() OVER (
-        PARTITION BY source, job_id 
-        ORDER BY scrape_timestamp DESC
-      ) AS rn
-    FROM cleaned_jobs
-  )
-  SELECT 
-    c.job_id,
-    c.source,
-    c.job_title,
-    c.job_classification,
-    c.job_location,
-    c.job_work_type,
-    c.job_salary_min_sgd_monthly,
-    c.job_salary_max_sgd_monthly,
-    (c.job_salary_min_sgd_monthly + c.job_salary_max_sgd_monthly) / 2 AS salary_mid,
-    TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), c.job_posted_timestamp, DAY) AS days_since_posted,
-    LENGTH(c.job_description) AS description_length,
-    e.embedding
-  FROM latest_jobs c
-  JOIN job_embeddings e ON c.job_id = e.job_id AND c.source = e.source
-  WHERE c.rn = 1 AND c.job_salary_min_sgd_monthly IS NOT NULL
-  ```
+### Task 3B.2.1: Create vw_ml_features View ⏱️ 30 min
+- File: `ml/setup_features_view.py`
+- Creates BigQuery VIEW combining cleaned_jobs + job_embeddings
+- Computes derived features (salary_mid, days_since_posted, text lengths)
+- Uses ROW_NUMBER() deduplication pattern
+- Status: 🔲 Not started
 
-### Task 3B.2.3: Data Splitting Strategy
-- [ ] Implement time-based split (not random):
-  - Train: Jobs posted before cutoff date
-  - Validation: Jobs posted after cutoff
-  - Test: Most recent 10% of jobs
-- [ ] Stratify by job_classification and salary_range
-- [ ] Document split ratios and date ranges
+### Task 3B.2.2: Data Loading ⏱️ 20 min
+- Add `load_from_bigquery()` method to FeatureEngineer
+- Queries vw_ml_features → pandas DataFrame
+- Extracts embeddings as numpy array
+- Supports filters and row limits
+- Status: 🔲 Not started
 
-**Acceptance Criteria:**
-- [ ] Feature matrix created with all features
-- [ ] No data leakage between train/val/test
-- [ ] Feature importance analysis completed
-- [ ] Documentation of all feature transformations
+### Task 3B.2.3: PCA Reduction ⏱️ 30 min
+- Add `fit_pca()` and `transform_embeddings()` methods
+- Reduce 384 dims → 50 dims (preserves 95% variance)
+- Update `prepare_training_data()` to use PCA
+- Status: 🔲 Not started
+
+### Task 3B.2.4: Feature Validation ⏱️ 30 min
+- File: `ml/validate_features.py`
+- Check missing values, infinite values
+- Analyze distributions, correlations
+- Generate validation report + heatmap
+- Status: 🔲 Not started
+
+### Task 3B.2.5: Test Notebook ⏱️ 20 min
+- File: `notebooks/ml_test_features.ipynb`
+- Load features from BigQuery
+- Test with/without PCA
+- Visualize distributions
+- Status: 🔲 Not started
+
+**Estimated Total Time:** 2-3 hours
+
+---
+
+## 3B.3: Acceptance Criteria
+
+Phase 3B complete when:
+- [ ] `vw_ml_features` view exists in BigQuery
+- [ ] Can load data: `fe.load_from_bigquery()` works
+- [ ] PCA reduction functional
+- [ ] Validation script runs without errors
+- [ ] Feature matrix shape: (n_jobs, ~450) without PCA, (~100) with PCA
+- [ ] No NaN/inf in final features
+- [ ] Test notebook executes successfully
 
 ---
 
 # Phase 3C: Model Training
+
+**Status:** 🔲 **NOT STARTED** (Blocked by Phase 3B)
 
 **Goal:** Train and evaluate salary prediction and clustering models.
 
