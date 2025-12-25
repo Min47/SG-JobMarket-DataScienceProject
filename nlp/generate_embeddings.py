@@ -23,6 +23,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from nlp.setup_embeddings_table import create_embeddings_table
 
 from dotenv import load_dotenv
 
@@ -292,13 +293,6 @@ def main():
     # Create table if requested
     if args.create_table:
         from google.cloud import bigquery
-        try:
-            # When running as part of nlp package (CLI)
-            from nlp.setup_embeddings_table import create_embeddings_table
-        except ModuleNotFoundError:
-            # When running in Cloud Function (flat structure)
-            from setup_embeddings_table import create_embeddings_table
-        
         client = bigquery.Client(project=PROJECT_ID)
         create_embeddings_table(client)
 

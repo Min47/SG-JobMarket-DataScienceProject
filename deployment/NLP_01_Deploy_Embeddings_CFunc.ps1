@@ -29,23 +29,31 @@ if (Test-Path $DeployTemp) {
 }
 New-Item -ItemType Directory -Path $DeployTemp | Out-Null
 
-# Copy NLP files
+# Copy main.py (Cloud Function entrypoint at root)
+Write-Host "  Copying main.py (entrypoint)..." -ForegroundColor Gray
+Copy-Item -Path "nlp/cloud_function_main.py" -Destination "$DeployTemp/main.py"
+
+# Copy nlp/ module (maintain folder structure for consistent imports)
 Write-Host "  Copying nlp/ module..." -ForegroundColor Gray
-Copy-Item -Path "nlp/cloud_function_main.py" -Destination "$DeployTemp/main.py"  # Rename for Cloud Functions
-Copy-Item -Path "nlp/embeddings.py" -Destination "$DeployTemp/"
-Copy-Item -Path "nlp/generate_embeddings.py" -Destination "$DeployTemp/"
+New-Item -ItemType Directory -Path "$DeployTemp/nlp" | Out-Null
+Copy-Item -Path "nlp/__init__.py" -Destination "$DeployTemp/nlp/" -ErrorAction SilentlyContinue
+Copy-Item -Path "nlp/embeddings.py" -Destination "$DeployTemp/nlp/"
+Copy-Item -Path "nlp/generate_embeddings.py" -Destination "$DeployTemp/nlp/"
+Copy-Item -Path "nlp/setup_embeddings_table.py" -Destination "$DeployTemp/nlp/"
 
-# Copy root requirements.txt
-Write-Host "  Copying requirements.txt..." -ForegroundColor Gray
-Copy-Item -Path "requirements.txt" -Destination "$DeployTemp/requirements.txt"
-
-# Copy utils (needed by generate_embeddings.py)
-Write-Host "  Copying utils/ dependencies..." -ForegroundColor Gray
+# Copy utils/ module (maintain folder structure)
+Write-Host "  Copying utils/ module..." -ForegroundColor Gray
 New-Item -ItemType Directory -Path "$DeployTemp/utils" | Out-Null
 Copy-Item -Path "utils/__init__.py" -Destination "$DeployTemp/utils/"
 Copy-Item -Path "utils/logging.py" -Destination "$DeployTemp/utils/"
 Copy-Item -Path "utils/config.py" -Destination "$DeployTemp/utils/"
 Copy-Item -Path "utils/schemas.py" -Destination "$DeployTemp/utils/"
+Copy-Item -Path "utils/bq.py" -Destination "$DeployTemp/utils/"
+Copy-Item -Path "utils/bq_schemas.py" -Destination "$DeployTemp/utils/"
+
+# Copy root requirements.txt
+Write-Host "  Copying requirements.txt..." -ForegroundColor Gray
+Copy-Item -Path "requirements.txt" -Destination "$DeployTemp/requirements.txt"
 
 # Create .gcloudignore
 Write-Host "  Creating .gcloudignore..." -ForegroundColor Gray
