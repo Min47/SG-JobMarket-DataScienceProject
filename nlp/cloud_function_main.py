@@ -68,7 +68,7 @@ def generate_daily_embeddings(request):
         logger.info("="*70)
         
         # Import here to avoid loading dependencies during container startup
-        from generate_embeddings import generate_embeddings
+        from nlp.generate_embeddings import generate_embeddings
         
         # Call the main generate_embeddings function with date filter
         result = generate_embeddings(
