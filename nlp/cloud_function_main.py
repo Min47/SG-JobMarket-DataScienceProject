@@ -20,7 +20,8 @@ import json
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from generate_embeddings import generate_embeddings
+# NOTE: Import generate_embeddings inside the function to avoid loading
+# heavy dependencies (BigQuery, sentence-transformers) during container startup
 
 # Configure logging
 logging.basicConfig(
@@ -65,6 +66,9 @@ def generate_daily_embeddings(request):
         
         logger.info(f"Target date: {target_date.strftime('%Y-%m-%d')} (UTC)")
         logger.info("="*70)
+        
+        # Import here to avoid loading dependencies during container startup
+        from generate_embeddings import generate_embeddings
         
         # Call the main generate_embeddings function with date filter
         result = generate_embeddings(

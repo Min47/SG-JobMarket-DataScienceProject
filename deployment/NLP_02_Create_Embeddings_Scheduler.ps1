@@ -1,13 +1,13 @@
 # Create Cloud Scheduler job for daily embeddings generation
 #
-# Runs daily at 4:00 AM SGT (after scrapers complete)
+# Runs daily at 3:00 AM SGT (after scrapers complete)
 # Processes jobs from YESTERDAY (gives buffer time for JobStreet scraper)
 
 param(
     [string]$ProjectId = "sg-job-market",
     [string]$Region = "asia-southeast1",
     [string]$JobName = "scheduler-embeddings-daily-job",
-    [string]$Schedule = "0 3 * * *",  # 3:00 AM SGT (19:00 UTC previous day)
+    [string]$Schedule = "0 19 * * *",  # 3:00 AM SGT (19:00 UTC previous day)
     [string]$FunctionName = "generate-daily-embeddings"
 )
 
@@ -16,7 +16,7 @@ Write-Host "Creating Cloud Scheduler Job" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$FunctionUrl = "https://$Region-$ProjectId.cloudfunctions.net/$FunctionName"
+$FunctionUrl = "https://run.googleapis.com/v2/projects/$ProjectId/locations/$Region/jobs/$FunctionName"
 
 Write-Host "Configuration:" -ForegroundColor Yellow
 Write-Host "  Job Name: $JobName" -ForegroundColor Gray

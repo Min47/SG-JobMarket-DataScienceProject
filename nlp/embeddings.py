@@ -18,9 +18,6 @@ from typing import Iterable, List
 
 import numpy as np
 
-# Lazy imports for sentence-transformers (heavy dependency)
-# from sentence_transformers import SentenceTransformer
-
 logger = logging.getLogger(__name__)
 
 
