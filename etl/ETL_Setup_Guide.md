@@ -142,7 +142,7 @@ gcloud projects add-iam-policy-binding sg-job-market --member="serviceAccount:se
 **Step 1: Prepare deployment package**
 ```powershell
 # Run the deployment preparation script (Windows PowerShell)
-.\deployment\prepare_deploy.ps1
+.\deployment\ETL_01_deploy_ETL.ps1
 
 # Or manually (if script fails):
 mkdir .deploy_temp
