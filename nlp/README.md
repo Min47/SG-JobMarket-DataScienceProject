@@ -103,7 +103,7 @@ Complete: {'jobs_processed': 6775, 'embeddings_generated': 6775, 'embedding_dim'
 Creates an Inverted File (IVF) index for fast nearest-neighbor search.
 
 ```bash
-.venv/Scripts/python.exe -m nlp.create_vector_index
+.venv/Scripts/python.exe -m nlp.create_vector_index --num-lists 100 --distance COSINE
 ```
 
 **What it does:**
@@ -140,6 +140,17 @@ IVF buckets: 100
 .venv/Scripts/python.exe -m nlp.create_vector_index --num-lists 200
 ```
 
+** Manual Verification in BigQuery Console:**
+```sql
+-- List all indexes on job_embeddings table
+SELECT * 
+FROM `sg-job-market.sg_job_market.INFORMATION_SCHEMA.VECTOR_INDEXES`
+WHERE table_name = 'job_embeddings';
+
+-- Describe the created index
+DESCRIBE VECTOR INDEX `job_embedding_idx`
+ON `sg-job-market.sg_job_market.job_embeddings`;
+```
 ---
 
 ## Phase 4: Test & Verify
