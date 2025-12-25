@@ -7,15 +7,19 @@ You are the Machine Learning & GenAI Engineer.
 # Goal
 Generate embeddings, train ML models, and build Agentic RAG workflows for job market intelligence.
 
-**Status:** 🔲 **READY TO START** (Dec 23, 2025)
+**Status:** ✅ **PHASE 3A COMPLETE - PRODUCTION READY** (Dec 26, 2025)
 
-**Dependencies Met:**
-- ✅ ETL Pipeline deployed (cleaned_jobs data available in BigQuery)
-- ✅ BigQuery streaming API ready (for writing embeddings back)
-- ✅ GenAI folder scaffolded (`/genai/` with placeholders)
-- ✅ ML/NLP folders exist (`/ml/`, `/nlp/` with placeholders)
+**Implementation Results:**
+- ✅ Embeddings generated for 6,775 jobs (100% coverage, 384-dim SBERT)
+- ✅ BigQuery job_embeddings table created with partitioning/clustering
+- ✅ Cloud Function deployed: generate-daily-embeddings (asia-southeast1)
+- ✅ Cloud Scheduler: Runs daily at 4:00 AM SGT (processes yesterday's jobs)
+- ✅ Vector index created: job_embedding_idx (IVF, COSINE, 100 lists)
+- ✅ Test notebook verified: notebooks/nlp_test_embeddings.ipynb
+- ✅ Similarity search operational (fast <1s queries)
+- ✅ Deduplication queries fixed across all modules (ROW_NUMBER pattern)
 
-**What's Next:** Phase 3A - NLP Embeddings Generation
+**What's Next:** Phase 3B - Feature Engineering (ML-ready dataset)
 
 **Virtual Environment Usage:**
 - ⚠️ **CRITICAL:** Always use `.venv/Scripts/python.exe` for all Python commands
@@ -566,9 +570,12 @@ text = f"{title}. {description}" if description else title
   - Support incremental updates (only embed new jobs)
 - [x] Add CLI: `.venv/Scripts/python.exe -m nlp.generate_embeddings --limit 1000`
 - [x] Create setup script: `nlp/setup_embeddings_table.py`
+- [x] ✅ Cloud Function deployed: `generate-daily-embeddings` with daily scheduler
+- [x] ✅ Fixed deduplication in queries (ROW_NUMBER OVER pattern)
+- [x] ✅ Test notebook: `notebooks/nlp_test_embeddings.ipynb`
 - [ ] Add tests: `tests/test_embeddings.py`
 
-**Implementation complete, ready to run ✅**
+**Production deployment complete ✅**
 
 ### Task 3A.2.4: BigQuery Vector Index
 - [x] ✅ Generated embeddings for all 6,775 jobs (100% coverage)
@@ -578,13 +585,10 @@ text = f"{title}. {description}" if description else title
   - Value range: [-0.218, 0.232] (not zeros!)
   - Processing time: ~2 minutes for 6,775 jobs
 - [x] ✅ Created vector index creation script: `nlp/create_vector_index.py`
-- [x] ✅ Created test notebook: `notebooks/test_embeddings.ipynb`
-- [x] ✅ Updated deployment guide: `nlp/RUNNING_GUIDE.md`
-- [ ] Create vector index (run script):
-  ```bash
-  .venv/Scripts/python.exe -m nlp.create_vector_index
-  ```
-- [ ] Test similarity search in notebook
+- [x] ✅ Created test notebook: `notebooks/nlp_test_embeddings.ipynb`
+- [x] ✅ Updated deployment guide: `nlp/Docs/README.md`
+- [x] ✅ Vector index created: job_embedding_idx (IVF, COSINE, 100 lists)
+- [x] ✅ Similarity search verified in notebook (fast queries <1s)
 
 **What is a Vector Index?**
 A vector index is a data structure that enables fast nearest-neighbor search on high-dimensional embeddings. Without an index, BigQuery would need to compute cosine similarity between your query and ALL 10K+ job embeddings (slow, ~5 seconds). With an IVF (Inverted File) index, it only searches relevant "buckets" (fast, ~50ms).
@@ -602,9 +606,12 @@ A vector index is a data structure that enables fast nearest-neighbor search on 
 
 **Acceptance Criteria:**
 - [x] ✅ All cleaned_jobs have embeddings in BigQuery (6,775/6,775 = 100%)
-- [ ] Vector index created and queryable
-- [ ] Similar job search returns relevant results (verified in notebook)
+- [x] ✅ Cloud Function automated daily processing (deployed & scheduled)
+- [x] ✅ Vector index created and queryable (job_embedding_idx operational)
+- [x] ✅ Similar job search returns relevant results (verified in test notebook)
 - [x] ✅ Processing time: <5 minutes for 10K jobs (achieved: 2 min for 6.8K jobs)
+
+**Phase 3A Complete! Ready for Phase 3B.**
 
 ---
 
@@ -689,7 +696,6 @@ CREATE TABLE job_embeddings (
 - Tables = faster but can become stale
 - Embeddings are expensive (neural network) → store in table
 - Simple SQL features are cheap → compute in view
-- **ALWAYS use ROW_NUMBER() deduplication on cleaned_jobs (append-only table)**
 
 ## 3B.1: Feature Categories
 

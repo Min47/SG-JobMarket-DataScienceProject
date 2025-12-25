@@ -86,11 +86,11 @@ All components are modular, testable, documented, and cloud-ready.
 - ✅ BigQuery streaming API with 100% success rate (5,861+ jobs tested)
 - ✅ Cloud Function `etl-gcs-to-bigquery` deployed in asia-southeast1
 
-**Phase 3: ML/NLP** 🔲 **PLANNED**
-- SBERT embeddings generation
-- Salary prediction models
-- Job role classification
-- Clustering analysis
+**Phase 3: ML/NLP** � **IN PROGRESS**
+- ✅ Phase 3A: SBERT embeddings (6,775 jobs, Cloud Function deployed, vector index operational)
+- 🔄 Phase 3B: Feature engineering (IN PROGRESS)
+- 🔲 Phase 3C: Model training (salary prediction, classification, clustering)
+- 🔲 Phase 3D: Model artifacts & deployment
 
 **Phase 4: API & Dashboards** 🔲 **PLANNED**
 - FastAPI REST endpoints
