@@ -57,36 +57,62 @@ def get_jobs_to_embed(
         List of job dicts with job_id, source, title, description.
     """
     if only_new:
-        # Only jobs not yet embedded
+        # Only jobs not yet embedded (using latest version from append-only table)
+        date_filter = f"AND DATE(scrape_timestamp) = '{target_date.strftime('%Y-%m-%d')}'" if target_date else ""
+        
         query = f"""
+        WITH latest_jobs AS (
+            SELECT 
+                job_id,
+                source,
+                job_title,
+                job_description,
+                ROW_NUMBER() OVER (
+                    PARTITION BY source, job_id 
+                    ORDER BY scrape_timestamp DESC
+                ) AS rn
+            FROM `{PROJECT_ID}.{DATASET_ID}.{SOURCE_TABLE}`
+            WHERE 1=1 {date_filter}
+        )
         SELECT 
             c.job_id,
             c.source,
             c.job_title,
             SUBSTR(c.job_description, 1, 2000) as job_description
-        FROM `{PROJECT_ID}.{DATASET_ID}.{SOURCE_TABLE}` c
+        FROM latest_jobs c
         LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.{TARGET_TABLE}` e
             ON c.job_id = e.job_id AND c.source = e.source
-        WHERE e.job_id IS NULL
+        WHERE c.rn = 1 AND e.job_id IS NULL
         """
     else:
+        # Get all jobs (using latest version from append-only table)
+        date_filter = f"WHERE DATE(scrape_timestamp) = '{target_date.strftime('%Y-%m-%d')}'" if target_date else ""
+        
         query = f"""
+        WITH latest_jobs AS (
+            SELECT 
+                job_id,
+                source,
+                job_title,
+                job_description,
+                ROW_NUMBER() OVER (
+                    PARTITION BY source, job_id 
+                    ORDER BY scrape_timestamp DESC
+                ) AS rn
+            FROM `{PROJECT_ID}.{DATASET_ID}.{SOURCE_TABLE}`
+            {date_filter}
+        )
         SELECT 
             job_id,
             source,
             job_title,
             SUBSTR(job_description, 1, 2000) as job_description
-        FROM `{PROJECT_ID}.{DATASET_ID}.{SOURCE_TABLE}`
+        FROM latest_jobs
+        WHERE rn = 1
         """
     
-    # Add date filter if specified
-    if target_date:
-        date_str = target_date.strftime("%Y-%m-%d")
-        if only_new:
-            query = query.rstrip() + f" AND DATE(c.scraped_at) = '{date_str}'"
-        else:
-            query = query.rstrip() + f" WHERE DATE(scraped_at) = '{date_str}'"
-
+    # Remove old date filter logic since it's now in the CTE
+    # Add limit after WHERE clause
     if limit:
         query += f" LIMIT {limit}"
 

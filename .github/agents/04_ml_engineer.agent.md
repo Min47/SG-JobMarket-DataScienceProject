@@ -658,11 +658,24 @@ The 384 comes from our chosen SBERT model (all-MiniLM-L6-v2). Each dimension is 
 ```sql
 -- VIEW (computed on-the-fly, always fresh)
 CREATE VIEW vw_ml_features AS
+WITH latest_jobs AS (
+  SELECT 
+    job_id,
+    salary_min,
+    salary_max,
+    job_description,
+    ROW_NUMBER() OVER (
+      PARTITION BY source, job_id 
+      ORDER BY scrape_timestamp DESC
+    ) AS rn
+  FROM cleaned_jobs
+)
 SELECT 
   job_id,
   (salary_min + salary_max) / 2 AS salary_mid,  -- Cheap to compute
-  LENGTH(job_description) AS desc_length,        -- Cheap to compute
-FROM cleaned_jobs;
+  LENGTH(job_description) AS desc_length         -- Cheap to compute
+FROM latest_jobs
+WHERE rn = 1;
 
 -- TABLE (for expensive pre-computed data)
 CREATE TABLE job_embeddings (
@@ -676,6 +689,7 @@ CREATE TABLE job_embeddings (
 - Tables = faster but can become stale
 - Embeddings are expensive (neural network) → store in table
 - Simple SQL features are cheap → compute in view
+- **ALWAYS use ROW_NUMBER() deduplication on cleaned_jobs (append-only table)**
 
 ## 3B.1: Feature Categories
 
@@ -724,6 +738,24 @@ CREATE TABLE job_embeddings (
 - [ ] Create BigQuery view `vw_ml_features`:
   ```sql
   CREATE VIEW vw_ml_features AS
+  WITH latest_jobs AS (
+    SELECT 
+      job_id,
+      source,
+      job_title,
+      job_classification,
+      job_location,
+      job_work_type,
+      job_salary_min_sgd_monthly,
+      job_salary_max_sgd_monthly,
+      job_posted_timestamp,
+      job_description,
+      ROW_NUMBER() OVER (
+        PARTITION BY source, job_id 
+        ORDER BY scrape_timestamp DESC
+      ) AS rn
+    FROM cleaned_jobs
+  )
   SELECT 
     c.job_id,
     c.source,
@@ -737,9 +769,9 @@ CREATE TABLE job_embeddings (
     TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), c.job_posted_timestamp, DAY) AS days_since_posted,
     LENGTH(c.job_description) AS description_length,
     e.embedding
-  FROM cleaned_jobs c
+  FROM latest_jobs c
   JOIN job_embeddings e ON c.job_id = e.job_id AND c.source = e.source
-  WHERE c.job_salary_min_sgd_monthly IS NOT NULL
+  WHERE c.rn = 1 AND c.job_salary_min_sgd_monthly IS NOT NULL
   ```
 
 ### Task 3B.2.3: Data Splitting Strategy
