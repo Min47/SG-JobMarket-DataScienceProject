@@ -154,14 +154,39 @@ def write_embeddings_to_bq(
     total_inserted = 0
     for i in range(0, len(embeddings_data), batch_size):
         batch = embeddings_data[i:i + batch_size]
-        errors = client.insert_rows_json(table_id, batch)
-
-        if errors:
-            logger.error(f"BigQuery insert errors for batch {i//batch_size + 1}: {errors[:5]}")
-            raise RuntimeError(f"Failed to insert {len(errors)} rows in batch {i//batch_size + 1}")
-
-        total_inserted += len(batch)
-        logger.info(f"Inserted batch {i//batch_size + 1}: {len(batch)} embeddings ({total_inserted}/{len(embeddings_data)} total)")
+        
+        # Add retry logic with timeout
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Insert with timeout (30 seconds per batch)
+                import time
+                start_time = time.time()
+                errors = client.insert_rows_json(table_id, batch, timeout=30.0)
+                elapsed = time.time() - start_time
+                
+                if errors:
+                    logger.error(f"BigQuery insert errors for batch {i//batch_size + 1}: {errors[:5]}")
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                        logger.warning(f"Retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        raise RuntimeError(f"Failed to insert {len(errors)} rows in batch {i//batch_size + 1}")
+                
+                total_inserted += len(batch)
+                logger.info(f"✅ Batch {i//batch_size + 1}: {len(batch)} embeddings in {elapsed:.1f}s ({total_inserted}/{len(embeddings_data)} total)")
+                break  # Success, exit retry loop
+                
+            except Exception as e:
+                logger.error(f"BigQuery insert exception for batch {i//batch_size + 1}: {e}")
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    logger.warning(f"Retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    raise
 
     logger.info(f"✅ Successfully inserted all {total_inserted} embeddings to BigQuery")
     return total_inserted
@@ -244,6 +269,12 @@ def generate_embeddings(
             "embedding": embedding.tolist(),
             "model_name": embedding_generator.model_name,
         })
+    
+    # Clear memory after embeddings generation
+    import gc
+    del texts, embeddings
+    gc.collect()
+    logger.info("🧹 Cleared embedding tensors from memory")
 
     # Write to BigQuery
     if dry_run:
