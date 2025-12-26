@@ -72,7 +72,6 @@ Write-Host "[3/3] Creating/Updating Cloud Scheduler job..." -ForegroundColor Yel
 $ExistingScheduler = gcloud scheduler jobs describe $SchedulerName `
     --location=$Region `
     --project=$ProjectId `
-    --format="value(name)" 2>$null
 
 $SERVICE_ACCOUNT = "GCP-general-sa@$ProjectId.iam.gserviceaccount.com"
 
@@ -86,7 +85,7 @@ if ($ExistingScheduler) {
         --uri="$TARGET_URI" `
         --http-method=POST `
         --oauth-service-account-email=$SERVICE_ACCOUNT `
-        --description="Daily embedding generation for jobs (runs after ETL at 7 AM SGT)"
+        --description="Daily embedding generation for jobs (runs after ETL at 3 AM SGT)"
 } else {
     Write-Host "Creating new scheduler job..." -ForegroundColor Yellow
     
@@ -97,7 +96,7 @@ if ($ExistingScheduler) {
         --uri="$TARGET_URI" `
         --http-method=POST `
         --oauth-service-account-email=$SERVICE_ACCOUNT `
-        --description="Daily embedding generation for jobs (runs after ETL at 7 AM SGT)"
+        --description="Daily embedding generation for jobs (runs after ETL at 3 AM SGT)"
 }
 
 if ($LASTEXITCODE -eq 0) {

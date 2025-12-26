@@ -157,8 +157,7 @@ Write-Host "[4/5] Verifying deployment..." -ForegroundColor Yellow
 
 $JOB_READY = gcloud run jobs describe $JOB_NAME `
     --region=$REGION `
-    --project=$PROJECT_ID `
-    --format="value(status.conditions[?type=Ready].status)" 2>$null
+    --project=$PROJECT_ID
 
 if ($JOB_READY -eq "True") {
     Write-Host "      ✓ Job ready: $JOB_NAME" -ForegroundColor Green
