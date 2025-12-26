@@ -256,36 +256,79 @@ def generate_embeddings(
     
     logger.info(f"Prepared {len(texts)} texts for embedding")
 
-    # Generate embeddings
-    logger.info(f"Generating embeddings for {len(texts)} texts...")
-    embeddings = embedding_generator.embed_texts(texts, batch_size=batch_size)
-
-    # Prepare for BigQuery
-    embeddings_data = []
-    for job, embedding in zip(jobs, embeddings):
-        embeddings_data.append({
-            "job_id": job["job_id"],
-            "source": job["source"],
-            "embedding": embedding.tolist(),
-            "model_name": embedding_generator.model_name,
-        })
+    # Process in chunks to avoid memory issues with large batches
+    # Chunk size: number of JOBS to process together (not text chunking!)
+    job_chunk_size = 1000
+    all_embeddings_data = []
     
-    # Clear memory after embeddings generation
+    for chunk_idx in range(0, len(jobs), job_chunk_size):
+        chunk_end = min(chunk_idx + job_chunk_size, len(jobs))
+        chunk_jobs = jobs[chunk_idx:chunk_end]
+        chunk_texts = texts[chunk_idx:chunk_end]
+        
+        chunk_num = chunk_idx // job_chunk_size + 1
+        total_chunks = (len(jobs) - 1) // job_chunk_size + 1
+        
+        logger.info(f"=" * 50)
+        logger.info(f"Processing chunk {chunk_num}/{total_chunks}: {len(chunk_texts)} jobs")
+        logger.info(f"=" * 50)
+        
+        try:
+            # Generate embeddings for this chunk
+            chunk_embeddings = embedding_generator.embed_texts(chunk_texts, batch_size=batch_size)
+            
+            # Prepare for BigQuery
+            chunk_data = []
+            for job, embedding in zip(chunk_jobs, chunk_embeddings):
+                chunk_data.append({
+                    "job_id": job["job_id"],
+                    "source": job["source"],
+                    "embedding": embedding.tolist(),
+                    "model_name": embedding_generator.model_name,
+                })
+            
+            all_embeddings_data.extend(chunk_data)
+            
+            # Write to BigQuery immediately after each chunk (incremental writes)
+            if not dry_run:
+                logger.info(f"Writing chunk {chunk_num} to BigQuery...")
+                write_embeddings_to_bq(bq_client, chunk_data)
+            
+            # Clear memory after each chunk
+            import gc
+            del chunk_texts, chunk_embeddings, chunk_data
+            gc.collect()
+            logger.info(f"✅ Chunk {chunk_num} complete, memory cleared")
+            
+        except Exception as e:
+            logger.error(f"💥 Failed to process chunk {chunk_num}: {type(e).__name__}: {e}")
+            logger.error(f"Problematic job indices: {chunk_idx} to {chunk_end}")
+            # Log first few jobs in failed chunk for debugging
+            for i, job in enumerate(chunk_jobs[:3]):
+                title = job.get('job_title', 'N/A')[:50]
+                desc_len = len(job.get('job_description', ''))
+                logger.error(f"  Job {chunk_idx + i}: {title}... (desc length: {desc_len})")
+            raise
+    
+    # Clear texts and jobs after all processing
     import gc
-    del texts, embeddings
+    del texts, jobs
     gc.collect()
-    logger.info("🧹 Cleared embedding tensors from memory")
+    logger.info("🧹 Cleared all data from memory")
 
-    # Write to BigQuery
+    # Summary
     if dry_run:
-        logger.info(f"Dry run: would write {len(embeddings_data)} embeddings")
-    else:
-        write_embeddings_to_bq(bq_client, embeddings_data)
+        logger.info(f"Dry run: would write {len(all_embeddings_data)} embeddings")
 
+    # Summary
+    if dry_run:
+        logger.info(f"Dry run: would write {len(all_embeddings_data)} embeddings")
+    
+    # Note: embeddings already written incrementally in chunks
     result = {
-        "jobs_processed": len(jobs),
-        "embeddings_generated": len(embeddings_data),
-        "embedding_dim": embeddings.shape[1],
+        "jobs_processed": len(all_embeddings_data),
+        "embeddings_generated": len(all_embeddings_data),
+        "embedding_dim": 384,  # SBERT dimension
         "model_name": embedding_generator.model_name,
         "status": "success",
     }

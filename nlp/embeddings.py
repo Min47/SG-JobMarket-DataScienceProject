@@ -82,15 +82,49 @@ class EmbeddingGenerator:
 
         logger.info(f"Embedding {len(cleaned_texts)} texts (batch_size={batch_size})")
 
-        embeddings = self.model.encode(
-            cleaned_texts,
-            batch_size=batch_size,
-            show_progress_bar=show_progress,
-            convert_to_numpy=True,
-        )
-
-        logger.info(f"Generated embeddings with shape: {embeddings.shape}")
-        return embeddings
+        # Add retry logic with timeout for encode operation
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                import time
+                start_time = time.time()
+                
+                # Encode with timeout handling
+                embeddings = self.model.encode(
+                    cleaned_texts,
+                    batch_size=batch_size,
+                    show_progress_bar=show_progress,
+                    convert_to_numpy=True,
+                )
+                
+                elapsed = time.time() - start_time
+                logger.info(f"✅ Generated embeddings with shape: {embeddings.shape} in {elapsed:.1f}s")
+                
+                # Validate embeddings
+                if embeddings.shape[0] != len(cleaned_texts):
+                    raise ValueError(f"Embedding count mismatch: got {embeddings.shape[0]}, expected {len(cleaned_texts)}")
+                
+                return embeddings
+                
+            except Exception as e:
+                logger.error(f"❌ Encoding failed on attempt {attempt + 1}/{max_retries}: {type(e).__name__}: {e}")
+                
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    logger.warning(f"Retrying in {wait_time}s...")
+                    
+                    # Force garbage collection and clear cache
+                    import gc
+                    import torch
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        logger.info("Cleared CUDA cache")
+                    
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"💥 All {max_retries} encoding attempts failed!")
+                    raise
 
     def embed_job(
         self, job_title: str, job_description: str, max_desc_length: int = 1000
