@@ -16,7 +16,22 @@ Write-Host "Creating Cloud Scheduler Job" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$FunctionUrl = "https://run.googleapis.com/v2/projects/$ProjectId/locations/$Region/jobs/$FunctionName"
+# Get the Cloud Function URL dynamically
+Write-Host "Fetching Cloud Function URL..." -ForegroundColor Yellow
+$FunctionUrl = gcloud functions describe $FunctionName `
+    --region=$Region `
+    --project=$ProjectId `
+    --format="get(serviceConfig.uri)" 2>$null
+
+if (-not $FunctionUrl) {
+    Write-Host "❌ Error: Could not find Cloud Function '$FunctionName'" -ForegroundColor Red
+    Write-Host "   Make sure the function is deployed first:" -ForegroundColor Yellow
+    Write-Host "   .\deployment\NLP_01_Deploy_Embeddings_CFunc.ps1" -ForegroundColor White
+    exit 1
+}
+
+Write-Host "✅ Found function URL: $FunctionUrl" -ForegroundColor Green
+Write-Host ""
 
 Write-Host "Configuration:" -ForegroundColor Yellow
 Write-Host "  Job Name: $JobName" -ForegroundColor Gray
@@ -36,7 +51,8 @@ if ($ExistingJob) {
         --schedule="$Schedule" `
         --uri="$FunctionUrl" `
         --http-method=POST `
-        --oauth-service-account-email="GCP-general-sa@$ProjectId.iam.gserviceaccount.com" `
+        --message-body='{"process_today": "false"}' `
+        --oidc-service-account-email="GCP-general-sa@$ProjectId.iam.gserviceaccount.com" `
         --description="Daily embedding generation for jobs from yesterday"
 } else {
     Write-Host "Creating new scheduler job..." -ForegroundColor Yellow
@@ -46,7 +62,8 @@ if ($ExistingJob) {
         --schedule="$Schedule" `
         --uri="$FunctionUrl" `
         --http-method=POST `
-        --oauth-service-account-email="GCP-general-sa@$ProjectId.iam.gserviceaccount.com" `
+        --message-body='{"process_today": "false"}' `
+        --oidc-service-account-email="GCP-general-sa@$ProjectId.iam.gserviceaccount.com" `
         --description="Daily embedding generation for jobs from yesterday"
 }
 
