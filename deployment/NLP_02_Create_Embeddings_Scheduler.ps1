@@ -17,8 +17,7 @@ param(
     [string]$ProjectId = "sg-job-market",
     [string]$Region = "asia-southeast1",
     [string]$SchedulerName = "scheduler-embeddings-daily",
-    [string]$Schedule = "0 23 * * *",  # 7:00 AM SGT (23:00 UTC previous day)
-    [string]$TimeZone = "Asia/Singapore",
+    [string]$Schedule = "0 19 * * *",  # 3:00 AM SGT (19:00 UTC previous day)
     [string]$JobName = "cloudjob-embeddings-generator"
 )
 
@@ -59,7 +58,7 @@ $TARGET_URI = "https://run.googleapis.com/v2/projects/$ProjectId/locations/$Regi
 
 Write-Host "Configuration:" -ForegroundColor Yellow
 Write-Host "  Scheduler Name: $SchedulerName" -ForegroundColor Gray
-Write-Host "  Schedule:       $Schedule ($TimeZone)" -ForegroundColor Gray
+Write-Host "  Schedule:       $Schedule" -ForegroundColor Gray
 Write-Host "  Target:         $TARGET_URI" -ForegroundColor Gray
 Write-Host ""
 
@@ -84,7 +83,6 @@ if ($ExistingScheduler) {
         --location=$Region `
         --project=$ProjectId `
         --schedule="$Schedule" `
-        --time-zone="$TimeZone" `
         --uri="$TARGET_URI" `
         --http-method=POST `
         --oauth-service-account-email=$SERVICE_ACCOUNT `
@@ -96,7 +94,6 @@ if ($ExistingScheduler) {
         --location=$Region `
         --project=$ProjectId `
         --schedule="$Schedule" `
-        --time-zone="$TimeZone" `
         --uri="$TARGET_URI" `
         --http-method=POST `
         --oauth-service-account-email=$SERVICE_ACCOUNT `
@@ -110,7 +107,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "========================================" -ForegroundColor Green
     Write-Host ""
     Write-Host "Schedule Details:" -ForegroundColor Cyan
-    Write-Host "  Daily at: 7:00 AM SGT (23:00 UTC previous day)" -ForegroundColor Gray
+    Write-Host "  Daily at: 3:00 AM SGT (19:00 UTC previous day)" -ForegroundColor Gray
     Write-Host "  Target:   Cloud Run Job '$JobName'" -ForegroundColor Gray
     Write-Host ""
     Write-Host "Manual Trigger Commands:" -ForegroundColor Yellow
