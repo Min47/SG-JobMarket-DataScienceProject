@@ -11,7 +11,8 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
 
 **Phase 3A Complete:**
 - ✅ Embeddings: 6,775 jobs (384-dim SBERT)
-- ✅ Cloud Function deployed: generate-daily-embeddings
+- ✅ Cloud Run Job deployed: cloudjob-embeddings-generator
+- ✅ Cloud Scheduler: scheduler-embeddings-daily (3 AM SGT / 19:00 UTC)
 - ✅ Vector index: job_embedding_idx operational
 - ✅ Similarity search: <1s queries
 
@@ -574,7 +575,7 @@ text = f"{title}. {description}" if description else title
   - Support incremental updates (only embed new jobs)
 - [x] Add CLI: `.venv/Scripts/python.exe -m nlp.generate_embeddings --limit 1000`
 - [x] Create setup script: `nlp/setup_embeddings_table.py`
-- [x] ✅ Cloud Function deployed: `generate-daily-embeddings` with daily scheduler
+- [x] ✅ Cloud Run Job deployed: `cloudjob-embeddings-generator` with daily scheduler
 - [x] ✅ Fixed deduplication in queries (ROW_NUMBER OVER pattern)
 - [x] ✅ Test notebook: `notebooks/nlp_test_embeddings.ipynb`
 - [ ] Add tests: `tests/test_embeddings.py`
@@ -610,7 +611,7 @@ A vector index is a data structure that enables fast nearest-neighbor search on 
 
 **Acceptance Criteria:**
 - [x] ✅ All cleaned_jobs have embeddings in BigQuery (6,775/6,775 = 100%)
-- [x] ✅ Cloud Function automated daily processing (deployed & scheduled)
+- [x] ✅ Cloud Run Job automated daily processing (deployed & scheduled)
 - [x] ✅ Vector index created and queryable (job_embedding_idx operational)
 - [x] ✅ Similar job search returns relevant results (verified in test notebook)
 - [x] ✅ Processing time: <5 minutes for 10K jobs (achieved: 2 min for 6.8K jobs)
@@ -1252,12 +1253,12 @@ Evaluate metrics                      gs://bucket/models/salary_predictor/v1/
 
 | Option | Use Case | Cost | Latency | Our Choice |
 |--------|----------|------|---------|------------|
-| **Cloud Function** | Batch predictions | Free tier | 1-5s cold start | ✅ Daily batch |
+| **Cloud Run Job** | Batch predictions | Free tier | 1-5s cold start | ✅ Daily batch |
 | **FastAPI on Cloud Run** | Real-time API | ~$5/month | 100ms warm | ✅ API layer |
 | **Vertex AI Endpoint** | Production serving | $50+/month | 50ms | ❌ Too expensive for now |
 
 **Our Strategy:**
-- **Batch predictions:** Cloud Function runs daily, processes new jobs, writes to BigQuery
+- **Batch predictions:** Cloud Run Job runs daily, processes new jobs, writes to BigQuery
 - **Real-time API:** FastAPI loads model from GCS, serves predictions on-demand
 - **Vertex AI:** Use for monitoring dashboards, not hosting (cost reasons)
 
@@ -1271,8 +1272,8 @@ Evaluate metrics                      gs://bucket/models/salary_predictor/v1/
 |------|------|--------------|
 | 6:00 AM | Scraping | Cloud Run scrapes new jobs → GCS |
 | 6:30 AM | ETL | Cloud Function processes → BigQuery |
-| 7:00 AM | **Embedding Generation** | Generate embeddings for NEW jobs only |
-| 7:30 AM | **Batch Predictions** | Predict salary/cluster for NEW jobs only |
+| 7:00 PM | **Embedding Generation** | Cloud Run Job generates embeddings for NEW jobs (19:00 UTC = 3:00 AM SGT next day) |
+| 7:30 PM | **Batch Predictions** | Cloud Run Job predicts salary/cluster for NEW jobs (planned) |
 
 **Model Retraining Schedule:**
 
@@ -1355,7 +1356,7 @@ if current_accuracy < threshold:
   def predict_all_new_jobs() -> Dict[str, Any]
   ```
 - [ ] Write predictions to BigQuery `ml_predictions` table
-- [ ] Schedule daily predictions (Cloud Scheduler → Cloud Function)
+- [ ] Schedule daily predictions (Cloud Scheduler → Cloud Run Job)
 
 ### Task 3D.2.2: BigQuery Predictions Table
 - [ ] Create schema:

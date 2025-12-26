@@ -164,90 +164,85 @@ Open and run `notebooks/test_embeddings.ipynb` to verify:
 
 ---
 
-## Phase 5: Production Deployment (Cloud Function)
+## Phase 5: Production Deployment (Cloud Run Job)
 
-### Step 5a: Deploy Cloud Function
-Deploy automated daily embedding generation (processes yesterday's jobs by default).
+**Deployment Pattern** (from docker-compose.yml):
+```
+1. Cloud Build: Build Docker images from Dockerfiles → push to Artifact Registry
+2. Cloud Run Jobs: Deploy Docker images as Cloud Run Jobs for serverless execution
+3. Cloud Scheduler: Schedule periodic triggers for Cloud Run Jobs
+4. Service Account: GCP-general-sa@sg-job-market.iam.gserviceaccount.com
+```
+
+### Step 5a: Deploy Cloud Run Job
+Build and deploy Docker container using Cloud Build.
 
 ```powershell
-# Deploy Cloud Function
-.\deployment\NLP_01_Deploy_Embeddings_CFunc.ps1
+# Automated deployment: Build via Cloud Build, push to Artifact Registry, deploy as Cloud Run Job
+.\deployment\NLP_01_Deploy_Embeddings_CloudRun.ps1
+```
 
-# Create Cloud Scheduler (runs daily at 3:00 AM SGT)
+**What it does:**
+1. Creates Artifact Registry repository: `embeddings-docker` (if not exists)
+2. Triggers Cloud Build: `cloudbuild.embeddings.yaml`
+   - Builds from `Dockerfile.embeddings`
+   - Pushes to: `asia-southeast1-docker.pkg.dev/sg-job-market/embeddings-docker/sg-job-embeddings:latest`
+3. Deploys Cloud Run **Job**: `cloudjob-embeddings-generator`
+   - Memory: 2Gi
+   - CPU: 1
+   - Timeout: 3600s (60 minutes)
+   - Service Account: `GCP-general-sa@sg-job-market.iam.gserviceaccount.com`
+   - Executes: `python -m nlp.generate_embeddings --full`
+
+### Step 5b: Create Scheduler
+Configure daily trigger at 3:00 AM SGT (7:00 PM UTC previous day).
+
+```powershell
+# Create Cloud Scheduler job
 .\deployment\NLP_02_Create_Embeddings_Scheduler.ps1
 ```
 
 **What it does:**
-- Packages `nlp/` module with dependencies (sentence-transformers, torch)
-- Deploys to Cloud Functions Gen 2 (2GB memory, 9-min timeout)
-- Creates scheduler to run daily at 4:00 AM SGT (after scrapers finish)
-- **Processes jobs from YESTERDAY** (buffer time for JobStreet scraper at 1 PM UTC)
-
-### Step 5b: Manual Triggers
-
-```bash
-# Trigger yesterday's jobs (default behavior)
-gcloud scheduler jobs run embeddings-daily-job --location=asia-southeast1
-
-# Trigger today's jobs (manual override for testing)
-curl -X POST 'https://asia-southeast1-sg-job-market.cloudfunctions.net/generate-daily-embeddings?process_today=true'
-```
-
-### Step 5c: Monitor Logs
-
-```bash
-# View Cloud Function logs
-gcloud functions logs read generate-daily-embeddings --region=asia-southeast1 --limit=50
-
-# View scheduler logs
-gcloud scheduler jobs describe embeddings-daily-job --location=asia-southeast1
-```
+- Creates scheduler: `scheduler-embeddings-daily`
+- Schedule: `0 19 * * *` (7:00 PM UTC = 3:00 AM SGT next day)
+- Triggers Cloud Run Job API endpoint: `https://run.googleapis.com/v2/projects/sg-job-market/locations/asia-southeast1/jobs/cloudjob-embeddings-generator:run`
+- Authentication: OAuth token via Service Account `GCP-general-sa@sg-job-market.iam.gserviceaccount.com`
 
 **Daily Pipeline Flow:**
 ```
-01:00 UTC → MCF Scraper    → GCS → ETL → cleaned_jobs
+01:00 UTC → MCF Scraper       → GCS → ETL → cleaned_jobs
 13:00 UTC → JobStreet Scraper → GCS → ETL → cleaned_jobs
-19:00 UTC → Embeddings CF (processes YESTERDAY's jobs) ✅
+19:00 UTC → Embeddings Job    → Processes yesterday's new jobs ✅
+           (3:00 AM SGT)
 ```
 
-**Duplicate Handling:**
-- Cloud Function only processes jobs WITHOUT embeddings (LEFT JOIN check)
-- If duplicate job_id exists: Skipped automatically (no re-embedding)
-- Safe to re-run: Idempotent (only processes new jobs)
-
----
+### Step 5c: Manual Trigger & Verification
 
 ```bash
-# Launch Jupyter
-jupyter notebook notebooks/test_embeddings.ipynb
+# Trigger job manually
+gcloud run jobs execute cloudjob-embeddings-generator --region asia-southeast1
+
+# Check job status
+gcloud run jobs describe cloudjob-embeddings-generator --region asia-southeast1
+
+# View execution logs
+gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=cloudjob-embeddings-generator" --limit 50
+
+# Verify scheduler
+gcloud scheduler jobs describe scheduler-embeddings-daily --location asia-southeast1
 ```
-
-**What it tests:**
-1. Load embeddings with JOIN to cleaned_jobs
-2. Semantic search: "Senior Data Scientist with Python"
-3. Quality checks: vector norms, value distribution
-4. PCA visualization colored by job_classification
-5. Intra-category similarity analysis
-
----
-
-## 🔄 Daily Operations (After Initial Setup)
-
-### Incremental Embedding Generation (Daily)
-Run daily after scraper adds new jobs. Only processes jobs without embeddings.
-
-```bash
-.venv/Scripts/python.exe -m nlp.generate_embeddings
-```
-
-**Why it's fast:**
-- Queries: `LEFT JOIN job_embeddings WHERE e.job_id IS NULL`
-- Only embeds NEW jobs since last run
-- Idempotent: safe to run multiple times
 
 ---
 
 ## 📊 Monitoring & Verification
+
+### Daily Automated Processing
+Cloud Scheduler triggers `cloudjob-embeddings-generator` daily at 3:00 AM SGT (19:00 UTC). No manual intervention needed.
+
+**Check scheduler status:**
+```bash
+gcloud scheduler jobs describe scheduler-embeddings-daily --location asia-southeast1
+```
 
 ### Check Embedding Coverage
 ```bash

@@ -1,0 +1,79 @@
+# =============================================================================
+# Multi-stage Dockerfile for Embeddings Generator (SBERT + Flask)
+# Target size: ~1.5GB (includes PyTorch + sentence-transformers)
+# Memory: 2GB recommended
+# CPU: 1 vCPU
+# Timeout: 60 minutes (Cloud Run Gen2)
+# =============================================================================
+
+# =============================================================================
+# Stage 1: Builder - Install dependencies and create wheels
+# =============================================================================
+FROM python:3.13-slim-bookworm AS builder
+
+# Set working directory
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file
+COPY requirements.txt .
+
+# Create wheels for all dependencies (faster installation in runtime stage)
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+# =============================================================================
+# Stage 2: Runtime - Minimal production image
+# =============================================================================
+FROM python:3.13-slim-bookworm AS runtime
+
+# Set labels for metadata
+LABEL maintainer="SG Job Market Team"
+LABEL description="SBERT embedding generator for Singapore Job Market Intelligence Platform"
+LABEL version="1.0"
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd -r embeduser && \
+    useradd -r -g embeduser -u 101 embeduser && \
+    mkdir -p /app/logs /app/.cache && \
+    chown -R embeduser:embeduser /app
+
+# Set working directory
+WORKDIR /app
+
+# Copy wheels from builder stage
+COPY --from=builder /wheels /wheels
+
+# Install dependencies from wheels
+RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* && \
+    rm -rf /wheels
+
+# Copy application code (ordered by change frequency for layer caching)
+COPY --chown=embeduser:embeduser utils/ ./utils/
+COPY --chown=embeduser:embeduser nlp/ ./nlp/
+
+# Switch to non-root user
+USER embeduser
+
+# Entrypoint: Python module execution (like scrapers)
+ENTRYPOINT ["python", "-m", "nlp.generate_embeddings"]
+
+# Default command: Process yesterday's jobs
+# Cloud Run scheduler triggers with empty body, executes this CLI command
+CMD ["--full"]

@@ -1,0 +1,10 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+    'build', 
+    '-t', 'asia-southeast1-docker.pkg.dev/sg-job-market/embeddings-docker/sg-job-embeddings:latest', 
+    '-f', 'Dockerfile.embeddings', 
+    '.'
+  ]
+images:
+- 'asia-southeast1-docker.pkg.dev/sg-job-market/embeddings-docker/sg-job-embeddings:latest'

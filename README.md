@@ -87,7 +87,7 @@ All components are modular, testable, documented, and cloud-ready.
 - ✅ Cloud Function `etl-gcs-to-bigquery` deployed in asia-southeast1
 
 **Phase 3: ML/NLP** � **IN PROGRESS**
-- ✅ Phase 3A: SBERT embeddings (6,775 jobs, Cloud Function deployed, vector index operational)
+- ✅ Phase 3A: SBERT embeddings (6,775 jobs, Cloud Run Job deployed, vector index operational, scheduled 3 AM SGT daily)
 - 🔄 Phase 3B: Feature engineering (IN PROGRESS)
 - 🔲 Phase 3C: Model training (salary prediction, classification, clustering)
 - 🔲 Phase 3D: Model artifacts & deployment

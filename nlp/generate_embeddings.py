@@ -3,7 +3,7 @@ Generate embeddings for job descriptions and store in BigQuery.
 
 This script:
 1. Queries cleaned_jobs from BigQuery
-2. Generates embeddings using Sentence-BERT
+2. Generates embeddings using Sentence-BERT (all-MiniLM-L6-v2)
 3. Writes embeddings to job_embeddings table
 4. Supports incremental updates (only new jobs)
 
@@ -12,8 +12,12 @@ This script:
     python -m nlp.setup_embeddings_table
 
 Usage:
+    # Local CLI
     python -m nlp.generate_embeddings --limit 1000
     python -m nlp.generate_embeddings --full
+    
+    # Cloud Run (triggered by Cloud Scheduler)
+    # Cloud Run executes: python -m nlp.generate_embeddings --full
 """
 
 from __future__ import annotations
@@ -21,7 +25,8 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 from nlp.setup_embeddings_table import create_embeddings_table
 
@@ -258,6 +263,7 @@ def generate_embeddings(
 
     # Process in chunks to avoid memory issues with large batches
     # Chunk size: number of JOBS to process together (not text chunking!)
+    # Cloud Run timeout: 3600s (60 min), chunk size 1000 = ~9 min per chunk
     job_chunk_size = 1000
     all_embeddings_data = []
     
@@ -344,7 +350,7 @@ def generate_embeddings(
 
 
 def main():
-    """CLI entrypoint."""
+    """CLI entrypoint (Cloud Run executes this directly)."""
     parser = argparse.ArgumentParser(
         description="Generate job embeddings and store in BigQuery"
     )
@@ -363,7 +369,7 @@ def main():
     parser.add_argument(
         "--full",
         action="store_true",
-        help="Process all jobs (not just new ones)",
+        help="Process all jobs from yesterday (not just new ones)",
     )
     parser.add_argument(
         "--dry-run",
@@ -396,13 +402,25 @@ def main():
         client = bigquery.Client(project=PROJECT_ID)
         create_embeddings_table(client)
 
+    # Process yesterday's jobs (UTC) - default target date
+    target_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    logger.info(f"Processing jobs from {target_date.date()}")
+
     # Generate embeddings
-    generate_embeddings(
+    result = generate_embeddings(
         limit=args.limit,
         batch_size=args.batch_size,
         only_new=not args.full,
         dry_run=args.dry_run,
+        target_date=target_date,
     )
+    
+    # Log results
+    if result["status"] == "success":
+        logger.info(f"✅ Success: {result['embeddings_generated']} embeddings generated in {result['duration_seconds']:.1f}s")
+    else:
+        logger.error(f"❌ Failed: {result.get('error', 'Unknown error')}")
+        exit(1)
 
 
 if __name__ == "__main__":
