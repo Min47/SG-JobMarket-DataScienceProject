@@ -4,9 +4,9 @@
 # Deploys Docker container as Cloud Run Job (matching scraper pattern)
 # =============================================================================
 
-Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "================================================" -ForegroundColor Cyan
 Write-Host "Cloud Run JOB Deployment: Embeddings Generator" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "================================================" -ForegroundColor Cyan
 Write-Host ""
 
 # =============================================================================
@@ -16,11 +16,13 @@ Write-Host ""
 $PROJECT_ID = "sg-job-market"
 $REGION = "asia-southeast1"
 $JOB_NAME = "cloudjob-embeddings-generator"
-$REPOSITORY = "embeddings-docker"
+$REPOSITORY = "nlp-embeddings-docker"
 $IMAGE_NAME = "sg-job-embeddings"
-$DOCKERFILE = "Dockerfile.embeddings"
+$CLOUDBUILD_CONFIG = "cloudbuild.embeddings.yaml"
 
 $FULL_IMAGE_PATH = "$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/${IMAGE_NAME}:latest"
+
+$REPO_ROOT = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
 # Environment variables for Cloud Run
 $ENV_VARS = @(
@@ -35,17 +37,17 @@ $SERVICE_ACCOUNT = "GCP-general-sa@$PROJECT_ID.iam.gserviceaccount.com"
 # Cloud Run Job configuration
 $CPU = "1"
 $MEMORY = "2Gi"
-$TIMEOUT = "3600s"  # 60 minutes
+$TIMEOUT = "1d"  # 1 day
 $MAX_RETRIES = "3"
 
 # =============================================================================
 # Step 1: Check prerequisites
 # =============================================================================
 
-Write-Host "[1/6] Checking prerequisites..." -ForegroundColor Yellow
+Write-Host "[1/5] Checking prerequisites..." -ForegroundColor Yellow
 
 # Check if Artifact Registry repository exists
-$repoExists = gcloud artifacts repositories describe $REPOSITORY `
+$null = gcloud artifacts repositories describe $REPOSITORY `
     --location=$REGION `
     --project=$PROJECT_ID `
     2>&1
@@ -69,44 +71,42 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # =============================================================================
-# Step 2: Build Docker image
+# Step 2: Build and push image via Cloud Build
 # =============================================================================
 
-Write-Host "[2/6] Building Docker image..." -ForegroundColor Yellow
+Write-Host "[2/5] Building and pushing image via Cloud Build..." -ForegroundColor Yellow
+Write-Host "      Context: $REPO_ROOT" -ForegroundColor Gray
+Write-Host "      Config: $CLOUDBUILD_CONFIG" -ForegroundColor Gray
 Write-Host "      Image: $FULL_IMAGE_PATH" -ForegroundColor Gray
 
-docker build -t $FULL_IMAGE_PATH -f $DOCKERFILE .
+Push-Location $REPO_ROOT
+try {
+    if (-not (Test-Path (Join-Path $REPO_ROOT "Dockerfile.embeddings"))) {
+        Write-Host "      ✗ Missing Dockerfile.embeddings in repo root" -ForegroundColor Red
+        exit 1
+    }
+    if (-not (Test-Path (Join-Path $REPO_ROOT $CLOUDBUILD_CONFIG))) {
+        Write-Host "      ✗ Missing $CLOUDBUILD_CONFIG in repo root" -ForegroundColor Red
+        exit 1
+    }
+
+    gcloud builds submit . --config=$CLOUDBUILD_CONFIG --project=$PROJECT_ID
+} finally {
+    Pop-Location
+}
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "      ✗ Docker build failed" -ForegroundColor Red
+    Write-Host "      ✗ Cloud Build failed" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "      ✓ Docker image built successfully" -ForegroundColor Green
+Write-Host "      ✓ Image built and pushed to Artifact Registry" -ForegroundColor Green
 
 # =============================================================================
-# Step 3: Push image to Artifact Registry
+# Step 3: Deploy to Cloud Run Job
 # =============================================================================
 
-Write-Host "[3/6] Pushing image to Artifact Registry..." -ForegroundColor Yellow
-
-# Configure Docker authentication
-gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
-
-docker push $FULL_IMAGE_PATH
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "      ✗ Docker push failed" -ForegroundColor Red
-    exit 1
-}
-
-Write-Host "      ✓ Image pushed to Artifact Registry" -ForegroundColor Green
-
-# =============================================================================
-# Step 4: Deploy to Cloud Run Job
-# =============================================================================
-
-Write-Host "[4/6] Deploying to Cloud Run Job..." -ForegroundColor Yellow
+Write-Host "[3/5] Deploying to Cloud Run Job..." -ForegroundColor Yellow
 
 # Check if job exists
 $existingJob = gcloud run jobs describe $JOB_NAME `
@@ -126,9 +126,7 @@ if ($existingJob) {
         --memory=$MEMORY `
         --cpu=$CPU `
         --task-timeout=$TIMEOUT `
-        --max-retries=$MAX_RETRIES `
-        --execute-now=false `
-        --quiet
+        --max-retries=$MAX_RETRIES
 } else {
     Write-Host "      Creating new job: $JOB_NAME" -ForegroundColor Gray
     
@@ -141,9 +139,7 @@ if ($existingJob) {
         --memory=$MEMORY `
         --cpu=$CPU `
         --task-timeout=$TIMEOUT `
-        --max-retries=$MAX_RETRIES `
-        --execute-now=false `
-        --quiet
+        --max-retries=$MAX_RETRIES
 }
 
 if ($LASTEXITCODE -ne 0) {
@@ -154,17 +150,17 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "      ✓ Deployed to Cloud Run Job" -ForegroundColor Green
 
 # =============================================================================
-# Step 5: Verify deployment
+# Step 4: Verify deployment
 # =============================================================================
 
-Write-Host "[5/6] Verifying deployment..." -ForegroundColor Yellow
+Write-Host "[4/5] Verifying deployment..." -ForegroundColor Yellow
 
 $JOB_READY = gcloud run jobs describe $JOB_NAME `
     --region=$REGION `
     --project=$PROJECT_ID `
-    --format="value(status.conditions[0].type)" 2>$null
+    --format="value(status.conditions[?type=Ready].status)" 2>$null
 
-if ($JOB_READY) {
+if ($JOB_READY -eq "True") {
     Write-Host "      ✓ Job ready: $JOB_NAME" -ForegroundColor Green
 } else {
     Write-Host "      ✗ Failed to verify job status" -ForegroundColor Red
@@ -172,10 +168,10 @@ if ($JOB_READY) {
 }
 
 # =============================================================================
-# Step 6: Deployment Summary
+# Step 5: Deployment Summary
 # =============================================================================
 
-Write-Host "[6/6] Deployment Summary" -ForegroundColor Yellow
+Write-Host "[5/5] Deployment Summary" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "=============================================" -ForegroundColor Green
 Write-Host "✓ Cloud Run Job Deployed Successfully!" -ForegroundColor Green
@@ -202,25 +198,4 @@ Write-Host "  gcloud run jobs logs read $JOB_NAME --region=$REGION --limit=50" -
 Write-Host ""
 Write-Host "  # List executions" -ForegroundColor Gray
 Write-Host "  gcloud run jobs executions list --job=$JOB_NAME --region=$REGION" -ForegroundColor White
-Write-Host ""
-Write-Host "Service Details:" -ForegroundColor Cyan
-Write-Host "  Name:     $SERVICE_NAME" -ForegroundColor White
-Write-Host "  URL:      $SERVICE_URL" -ForegroundColor White
-Write-Host "  Region:   $REGION" -ForegroundColor White
-Write-Host "  Image:    $FULL_IMAGE_PATH" -ForegroundColor White
-Write-Host "  Timeout:  3600s (60 minutes)" -ForegroundColor White
-Write-Host "  Memory:   2GB" -ForegroundColor White
-Write-Host ""
-Write-Host "Test the service:" -ForegroundColor Cyan
-Write-Host "  curl -X POST $SERVICE_URL/generate \`" -ForegroundColor Gray
-Write-Host "    -H 'Content-Type: application/json' \`" -ForegroundColor Gray
-Write-Host "    -d '{\"limit\": 100, \"process_today\": false}'" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Check logs:" -ForegroundColor Cyan
-Write-Host "  gcloud run services logs read $SERVICE_NAME --region=$REGION --limit=50" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Scheduler:" -ForegroundColor Cyan
-Write-Host "  Job: $SCHEDULER_JOB" -ForegroundColor White
-Write-Host "  Schedule: Daily at 2:00 AM SGT" -ForegroundColor White
-Write-Host "  Run manually: gcloud scheduler jobs run $SCHEDULER_JOB --location=$REGION" -ForegroundColor Gray
 Write-Host ""

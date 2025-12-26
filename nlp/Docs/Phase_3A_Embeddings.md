@@ -183,10 +183,10 @@ Build and deploy Docker container using Cloud Build.
 ```
 
 **What it does:**
-1. Creates Artifact Registry repository: `embeddings-docker` (if not exists)
+1. Creates Artifact Registry repository: `nlp-embeddings-docker` (if not exists)
 2. Triggers Cloud Build: `cloudbuild.embeddings.yaml`
    - Builds from `Dockerfile.embeddings`
-   - Pushes to: `asia-southeast1-docker.pkg.dev/sg-job-market/embeddings-docker/sg-job-embeddings:latest`
+   - Pushes to: `asia-southeast1-docker.pkg.dev/sg-job-market/nlp-embeddings-docker/sg-job-embeddings:latest`
 3. Deploys Cloud Run **Job**: `cloudjob-embeddings-generator`
    - Memory: 2Gi
    - CPU: 1

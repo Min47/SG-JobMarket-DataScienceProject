@@ -1,5 +1,10 @@
-# Google Cloud Functions deployment - exclude unnecessary files
-# This reduces deployment size and speeds up deployment
+# Cloud source ignore rules
+#
+# This file is used by `gcloud` for commands like `gcloud builds submit`.
+# It must NOT exclude Dockerfiles, Cloud Build configs, or source folders needed
+# to build Cloud Run Jobs (e.g., JobStreet/MCF scrapers, embeddings).
+#
+# Keep this focused on large/local-only artifacts.
 
 # Python cache
 __pycache__/
@@ -33,32 +38,22 @@ tests/
 .coverage
 htmlcov/
 
-# Docker files (not needed for Cloud Functions)
-Dockerfile.*
+# Docker / Cloud Build
+# Do NOT ignore Dockerfiles or cloudbuild configs.
+# (docker-compose.yml can be ignored; it's not needed for Cloud Build.)
 docker-compose.yml
-.dockerignore
-cloudbuild.*.yaml
 
 # Git
 .git/
 .gitignore
 .github/
 
-# Documentation (not needed at runtime)
+# Documentation (optional to ignore; keep to reduce upload size)
 docs/
-README.md
 *.md
 
-# Deployment scripts
-deployment/
-
-# Other service directories (not needed for ETL)
-scraper/
-api/
-dashboard/
-ml/
-nlp/
-genai/
+# Deployment scripts + service code
+# Do NOT ignore these; Cloud Run Job builds may need them.
 
 # Environment files
 .env
