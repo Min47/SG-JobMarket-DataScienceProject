@@ -41,7 +41,12 @@ LABEL version="1.0"
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HOME=/app \
+    XDG_CACHE_HOME=/app/.cache \
+    HF_HOME=/app/.cache/huggingface \
+    TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers \
+    SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence-transformers
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -53,6 +58,10 @@ RUN groupadd -r embeduser && \
     useradd -r -g embeduser -u 101 embeduser && \
     mkdir -p /app/logs /app/.cache && \
     chown -R embeduser:embeduser /app
+
+# Ensure model/cache directories exist and are writable by embeduser
+RUN mkdir -p /app/.cache/huggingface/transformers /app/.cache/sentence-transformers && \
+    chown -R embeduser:embeduser /app/.cache
 
 # Set working directory
 WORKDIR /app
