@@ -1266,15 +1266,6 @@ Evaluate metrics                      gs://bucket/models/salary_predictor/v1/
 
 **NOT model training!** Training is occasional (weekly/monthly).
 
-**Daily Schedule:**
-
-| Time | Task | What Happens |
-|------|------|--------------|
-| 6:00 AM | Scraping | Cloud Run scrapes new jobs → GCS |
-| 6:30 AM | ETL | Cloud Function processes → BigQuery |
-| 7:00 PM | **Embedding Generation** | Cloud Run Job generates embeddings for NEW jobs (19:00 UTC = 3:00 AM SGT next day) |
-| 7:30 PM | **Batch Predictions** | Cloud Run Job predicts salary/cluster for NEW jobs (planned) |
-
 **Model Retraining Schedule:**
 
 | Strategy | When to Retrain | Pros | Cons |

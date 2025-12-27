@@ -195,7 +195,7 @@ Build and deploy Docker container using Cloud Build.
    - Executes: `python -m nlp.generate_embeddings --full`
 
 ### Step 5b: Create Scheduler
-Configure daily trigger at 3:00 AM SGT (7:00 PM UTC previous day).
+Configure daily trigger at 3:00 AM SGT (1900 UTC previous day).
 
 ```powershell
 # Create Cloud Scheduler job
@@ -204,7 +204,7 @@ Configure daily trigger at 3:00 AM SGT (7:00 PM UTC previous day).
 
 **What it does:**
 - Creates scheduler: `scheduler-embeddings-daily`
-- Schedule: `0 19 * * *` (7:00 PM UTC = 3:00 AM SGT next day)
+- Schedule: `0 19 * * *` (3:00 AM SGT next day)
 - Triggers Cloud Run Job API endpoint: `https://run.googleapis.com/v2/projects/sg-job-market/locations/asia-southeast1/jobs/cloudjob-embeddings-generator:run`
 - Authentication: OAuth token via Service Account `GCP-general-sa@sg-job-market.iam.gserviceaccount.com`
 
