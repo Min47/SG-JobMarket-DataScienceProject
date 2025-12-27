@@ -26,6 +26,7 @@ import argparse
 import logging
 import os
 import json
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 from nlp.setup_embeddings_table import create_embeddings_table
@@ -220,6 +221,8 @@ def generate_embeddings(
     from google.cloud import bigquery
     from nlp.embeddings import EmbeddingGenerator
 
+    start_time = time.time()
+
     logger.info("=" * 50)
     logger.info("Starting embedding generation pipeline")
     date_info = f", target_date={target_date.strftime('%Y-%m-%d')}" if target_date else ""
@@ -235,7 +238,17 @@ def generate_embeddings(
 
     if not jobs:
         logger.info("No jobs to embed")
-        return {"jobs_processed": 0, "status": "no_jobs"}
+        result: Dict[str, Any] = {
+            "jobs_processed": 0,
+            "embeddings_generated": 0,
+            "embedding_dim": 384,
+            "model_name": embedding_generator.model_name,
+            "status": "no_jobs",
+            "duration_seconds": time.time() - start_time,
+        }
+        if target_date:
+            result["target_date"] = target_date.strftime("%Y-%m-%d")
+        return result
 
     # Filter out jobs with both empty title AND description
     jobs_before_filter = len(jobs)
@@ -248,7 +261,17 @@ def generate_embeddings(
 
     if not jobs:
         logger.info("No valid jobs to embed after filtering")
-        return {"jobs_processed": 0, "status": "no_valid_jobs"}
+        result = {
+            "jobs_processed": 0,
+            "embeddings_generated": 0,
+            "embedding_dim": 384,
+            "model_name": embedding_generator.model_name,
+            "status": "no_valid_jobs",
+            "duration_seconds": time.time() - start_time,
+        }
+        if target_date:
+            result["target_date"] = target_date.strftime("%Y-%m-%d")
+        return result
 
     # Prepare texts (combine title + description, truncate description to 1000 chars)
     texts = []
@@ -325,10 +348,6 @@ def generate_embeddings(
     # Summary
     if dry_run:
         logger.info(f"Dry run: would write {len(all_embeddings_data)} embeddings")
-
-    # Summary
-    if dry_run:
-        logger.info(f"Dry run: would write {len(all_embeddings_data)} embeddings")
     
     # Note: embeddings already written incrementally in chunks
     result = {
@@ -337,6 +356,7 @@ def generate_embeddings(
         "embedding_dim": 384,  # SBERT dimension
         "model_name": embedding_generator.model_name,
         "status": "success",
+        "duration_seconds": time.time() - start_time,
     }
     
     if target_date:
@@ -416,11 +436,16 @@ def main():
     )
     
     # Log results
-    if result["status"] == "success":
-        logger.info(f"✅ Success: {result['embeddings_generated']} embeddings generated in {result['duration_seconds']:.1f}s")
-    else:
-        logger.error(f"❌ Failed: {result.get('error', 'Unknown error')}")
-        exit(1)
+    duration_seconds = result.get("duration_seconds")
+    duration_str = f" in {duration_seconds:.1f}s" if isinstance(duration_seconds, (int, float)) else ""
+
+    if result.get("status") in {"success", "no_jobs", "no_valid_jobs"}:
+        embeddings_generated = result.get("embeddings_generated", 0)
+        logger.info(f"✅ Complete: {embeddings_generated} embeddings generated{duration_str} (status={result.get('status')})")
+        return
+
+    logger.error(f"❌ Failed: {result.get('error', 'Unknown error')}")
+    exit(1)
 
 
 if __name__ == "__main__":

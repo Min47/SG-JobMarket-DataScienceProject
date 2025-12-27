@@ -4,14 +4,14 @@
 # Creates scheduler to trigger Cloud Run Job (matching scraper pattern)
 # =============================================================================
 #
-# Runs daily at 7:00 AM SGT (after scrapers and ETL complete)
+# Runs daily at 3:00 AM SGT (19:00 UTC) (after scrapers and ETL complete)
 # Triggers: Cloud Run Job cloudjob-embeddings-generator
 #
 # Schedule Sequence:
 #   9:00 PM SGT → JobStreet scraper
 #   9:00 AM SGT → MCF scraper
 #   ↓ ETL triggers automatically
-#   7:00 AM SGT → Embeddings generation (THIS SCHEDULER)
+#   3:00 AM SGT → Embeddings generation (THIS SCHEDULER)
 
 param(
     [string]$ProjectId = "sg-job-market",
