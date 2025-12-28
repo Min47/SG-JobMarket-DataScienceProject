@@ -27,3 +27,4 @@ functions-framework==3.10.0
 matplotlib==3.10.8
 seaborn==0.13.2
 db-dtypes==1.5.0
+pytest==9.0.2
