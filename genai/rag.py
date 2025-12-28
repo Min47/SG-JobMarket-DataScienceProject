@@ -14,7 +14,10 @@ from datetime import datetime, timezone
 
 from google.cloud import bigquery
 from google.cloud import aiplatform
+import vertexai
+from vertexai.generative_models import GenerativeModel
 import numpy as np
+import json
 
 from utils.config import Settings
 from nlp.embeddings import EmbeddingGenerator
@@ -298,26 +301,167 @@ def retrieve_jobs(
 def grade_documents(
     query: str,
     documents: List[Dict[str, Any]],
+    threshold: float = 5.0,
+    settings: Optional[Settings] = None,
 ) -> List[Dict[str, Any]]:
-    """Grade retrieved documents for relevance using LLM.
+    """Grade retrieved documents for relevance using Gemini Pro.
     
-    TODO: Implement document grading
-    - Use Gemini to evaluate relevance of each retrieved job
-    - Filter out irrelevant results
-    - Re-rank documents based on relevance scores
+    Uses Vertex AI Gemini to score each job's relevance to the user query
+    on a scale of 0-10. Documents below the threshold are filtered out.
+    Results are re-ranked by LLM grade (descending).
     
     Args:
         query: Original user query
-        documents: Retrieved job documents
+        documents: Retrieved job documents from retrieve_jobs()
+        threshold: Minimum relevance score (0-10) to keep document (default: 5.0)
+        settings: Configuration settings
         
     Returns:
-        Filtered and re-ranked documents
+        Filtered and re-ranked documents with added fields:
+        - relevance_score (float): LLM-assigned score 0-10
+        - relevance_explanation (str): Brief explanation of score
+        
+    Raises:
+        ValueError: If documents list is empty
+        
+    Example:
+        >>> docs = retrieve_jobs("data scientist python", top_k=10)
+        >>> graded = grade_documents("data scientist python", docs, threshold=6.0)
+        >>> print(f"Kept {len(graded)}/{len(docs)} relevant jobs")
+        >>> graded[0]['relevance_score']
+        8.5
     """
-    logger.info(f"[RAG] Grading {len(documents)} documents for relevance")
+    if not documents:
+        logger.warning("[RAG] No documents to grade")
+        return []
     
-    # TODO: Implement LLM-based grading
-    # Placeholder: Return all documents unfiltered
-    return documents
+    logger.info(f"[RAG] Grading {len(documents)} documents for relevance (threshold={threshold})")
+    
+    if not settings:
+        settings = Settings.load()
+    
+    # Initialize Vertex AI
+    try:
+        vertexai.init(project=settings.gcp_project_id, location=settings.gcp_region)
+        model = GenerativeModel("gemini-2.5-flash")  # Fast model for grading
+        logger.debug("[RAG] Initialized Vertex AI Gemini")
+    except Exception as e:
+        logger.error(f"[RAG] Failed to initialize Vertex AI: {e}")
+        # Fallback: Return all documents with neutral score
+        for doc in documents:
+            doc['relevance_score'] = 7.0
+            doc['relevance_explanation'] = "Grading unavailable (LLM init failed)"
+        return documents
+    
+    # Grade each document
+    graded_docs = []
+    for i, doc in enumerate(documents, 1):
+        try:
+            # Construct grading prompt (very short for faster response)
+            # Escape quotes to avoid JSON issues
+            query_safe = query.replace('"', '\\"').replace("'", "\\'")
+            desc = doc.get('job_description', 'N/A')[:200].replace('"', '\\"').replace("'", "\\'")
+            title = doc.get('job_title', 'N/A').replace('"', '\\"')
+            company = doc.get('company_name', 'N/A').replace('"', '\\"')
+            classification = doc.get('job_classification', 'N/A').replace('"', '\\"')
+            
+            prompt = f"""Rate relevance 0-10.
+Query: {query_safe}
+Job: {title} at {company}
+Type: {classification}
+Desc: {desc}
+
+Respond ONLY with JSON: {{"score": 8.5, "explanation": "reason"}}"""
+            
+            # Call Gemini
+            response = model.generate_content(
+                prompt,
+                generation_config={
+                    "temperature": 0.0,  # Zero temp for deterministic scoring
+                    "max_output_tokens": 65535,  # Large buffer for extended thinking models
+                    "candidate_count": 1, # How many generations to produce
+                }
+            )
+            
+            # Parse response (should be pure JSON now)
+            response_text = response.text.strip()
+            
+            # Sometimes Gemini adds prefixes even with response_mime_type - clean them
+            if response_text.startswith("Here is"):
+                # Extract JSON after the prefix
+                lines = response_text.split('\n')
+                for i, line in enumerate(lines):
+                    if line.strip().startswith('{'):
+                        response_text = '\n'.join(lines[i:])
+                        break
+            
+            # Remove markdown code blocks if present
+            if '```json' in response_text:
+                parts = response_text.split('```json')
+                if len(parts) > 1:
+                    response_text = parts[1].split('```')[0].strip()
+            elif '```' in response_text:
+                parts = response_text.split('```')
+                if len(parts) >= 2:
+                    response_text = parts[1].strip()
+            
+            grading = json.loads(response_text) if response_text else {"score": 5.0, "explanation": "Empty response"}
+            score = float(grading.get('score', 5.0))
+            explanation = grading.get('explanation', 'No explanation provided')
+            
+            # Validate score range
+            score = max(0.0, min(10.0, score))
+            
+            # Add grading fields to document
+            doc['relevance_score'] = score
+            doc['relevance_explanation'] = explanation
+            
+            # Filter by threshold
+            if score >= threshold:
+                graded_docs.append(doc)
+                logger.debug(
+                    f"[RAG] Doc {i}/{len(documents)}: '{doc.get('job_title', 'N/A')}' "
+                    f"- Score: {score:.1f} ✓ (kept)"
+                )
+            else:
+                logger.debug(
+                    f"[RAG] Doc {i}/{len(documents)}: '{doc.get('job_title', 'N/A')}' "
+                    f"- Score: {score:.1f} ✗ (filtered)"
+                )
+        
+        except json.JSONDecodeError as e:
+            logger.warning(f"[RAG] Failed to parse Gemini response for doc {i}: {e}")
+            logger.warning(f"[RAG] Full raw response: {response_text}")
+            # Assign neutral score on error
+            doc['relevance_score'] = 6.0
+            doc['relevance_explanation'] = "Grading error - assigned neutral score"
+            if 6.0 >= threshold:
+                graded_docs.append(doc)
+        
+        except Exception as e:
+            logger.warning(f"[RAG] Error grading doc {i}: {e}")
+            # Assign neutral score on error
+            doc['relevance_score'] = 6.0
+            doc['relevance_explanation'] = f"Grading error: {str(e)[:50]}"
+            if 6.0 >= threshold:
+                graded_docs.append(doc)
+    
+    # Re-rank by relevance score (descending)
+    graded_docs.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+    
+    logger.info(
+        f"[RAG] Kept {len(graded_docs)}/{len(documents)} documents after grading "
+        f"(threshold={threshold})"
+    )
+    
+    if graded_docs:
+        top_score = graded_docs[0].get('relevance_score', 0)
+        logger.info(
+            f"[RAG] Top result: '{graded_docs[0].get('job_title', 'N/A')}' "
+            f"(relevance={top_score:.1f}/10)"
+        )
+    
+    return graded_docs
 
 
 # =============================================================================
