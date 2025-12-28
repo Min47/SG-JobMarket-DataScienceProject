@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Query Embedding (Reuses NLP module)
+# Query Embedding
 # =============================================================================
 
 # Global embedding generator instance (singleton pattern)
@@ -721,36 +721,3 @@ def rag_pipeline(
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     }
-
-
-# =============================================================================
-# Vector Index Management (Future)
-# =============================================================================
-
-def create_vector_index(
-    table_name: str = "cleaned_jobs",
-    embedding_column: str = "job_description_embedding",
-    settings: Optional[Settings] = None,
-) -> None:
-    """Create BigQuery Vector Index for semantic search.
-    
-    TODO: Implement vector index creation
-    - Check if embeddings column exists in table
-    - Create vector index using CREATE VECTOR INDEX SQL
-    - Configure distance metric (cosine, euclidean, dot_product)
-    - Set index options (num_leaves, distance_type)
-    
-    Args:
-        table_name: Name of the table to index
-        embedding_column: Column containing embeddings
-        settings: Configuration settings
-    """
-    logger.info(f"[RAG] Creating vector index on {table_name}.{embedding_column}")
-    
-    # TODO: Implement using BigQuery SQL
-    # Example SQL:
-    # CREATE VECTOR INDEX job_embeddings_idx
-    # ON `project.dataset.cleaned_jobs`(job_description_embedding)
-    # OPTIONS(distance_type='COSINE', index_type='IVF');
-    
-    raise NotImplementedError("Vector index creation not yet implemented")
