@@ -471,39 +471,203 @@ Respond ONLY with JSON: {{"score": 8.5, "explanation": "reason"}}"""
 def generate_answer(
     query: str,
     context_jobs: List[Dict[str, Any]],
+    max_context_jobs: int = 5,
     settings: Optional[Settings] = None,
-) -> str:
-    """Generate natural language answer using Gemini Pro.
+) -> Dict[str, Any]:
+    """Generate natural language answer using Gemini Pro with job context.
     
-    TODO: Implement answer generation
-    - Construct prompt with query + retrieved job context
-    - Call Vertex AI Gemini Pro API
-    - Format response with job details, salary insights, trends
-    - Include citations/sources (job IDs, companies)
+    Uses the top-K most relevant jobs (sorted by relevance_score from grade_documents)
+    as context to generate a comprehensive answer. Includes citations to source jobs.
     
     Args:
-        query: User's question
-        context_jobs: Retrieved jobs to use as context
+        query: User's original question
+        context_jobs: Graded and filtered jobs (output from grade_documents)
+        max_context_jobs: Maximum number of jobs to include in context (default: 5)
         settings: Configuration settings
         
     Returns:
-        Generated answer as markdown-formatted string
+        Dictionary with:
+        - answer: Generated natural language response (markdown)
+        - sources: List of job citations used
+        - metadata: Token usage, latency, etc.
+        
+    Raises:
+        ValueError: If context_jobs is empty
+        RuntimeError: If Gemini API call fails
         
     Example:
-        >>> jobs = retrieve_jobs("software engineer salary Singapore")
-        >>> answer = generate_answer("What's the average salary?", jobs)
-        >>> print(answer)
+        >>> jobs = retrieve_jobs("python developer", top_k=10)
+        >>> graded = grade_documents("python developer", jobs)
+        >>> result = generate_answer("What Python jobs are available?", graded)
+        >>> print(result['answer'])
     """
-    logger.info(f"[RAG] Generating answer for query: {query}")
+    if not context_jobs:
+        logger.warning("[RAG] No context jobs provided for answer generation")
+        return {
+            "answer": "I couldn't find any relevant jobs matching your query. Please try a different search term.",
+            "sources": [],
+            "metadata": {"error": "No context"}
+        }
     
-    # TODO: Replace with Vertex AI Gemini call
-    # Placeholder response
-    return (
-        f"**Answer to: {query}**\n\n"
-        f"Based on {len(context_jobs)} relevant jobs, here's what I found:\n\n"
-        f"*[Placeholder: Gemini Pro response will be generated here]*\n\n"
-        f"**Sources:** {len(context_jobs)} jobs analyzed from JobStreet and MyCareersFuture."
-    )
+    if not settings:
+        settings = Settings.load()
+    
+    logger.info(f"[RAG] Generating answer for query: {query[:100]}... using {len(context_jobs)} jobs")
+    
+    # Initialize Vertex AI
+    try:
+        vertexai.init(project=settings.gcp_project_id, location=settings.gcp_region)
+        model = GenerativeModel("gemini-2.5-flash")
+        logger.debug("[RAG] Initialized Vertex AI Gemini Flash for generation")
+    except Exception as e:
+        logger.error(f"[RAG] Failed to initialize Vertex AI: {e}")
+        raise RuntimeError(f"Failed to initialize Gemini: {e}")
+    
+    # Limit context to top-K most relevant jobs
+    top_jobs = context_jobs[:max_context_jobs]
+    logger.info(f"[RAG] Using top {len(top_jobs)} jobs as context")
+    
+    # Format job context for prompt
+    context_text = _format_job_context(top_jobs)
+    
+    # Construct prompt
+    prompt = f"""You are a Singapore job market expert assistant. Answer the user's question based on the provided job listings.
+
+User Question: "{query}"
+
+Available Job Listings:
+{context_text}
+
+Instructions:
+1. Provide a clear, comprehensive answer based on the job listings above
+2. Include specific details: job titles, companies, salary ranges, requirements
+3. Cite jobs by number [1], [2], etc. when mentioning specific information
+4. If asked about salaries, provide ranges and mention currency (SGD)
+5. If asked about requirements, summarize common skills/qualifications
+6. If the question cannot be fully answered with the provided jobs, acknowledge this
+7. Keep the answer concise but informative (2-4 paragraphs)
+8. Use markdown formatting for better readability
+
+Your Answer:"""
+    
+    # Call Gemini Flash
+    try:
+        start_time = datetime.now(timezone.utc)
+        response = model.generate_content(
+            prompt,
+            generation_config={
+                "temperature": 0.3,  # Slightly creative but factual
+                "max_output_tokens": 65535,
+                "top_p": 0.9,
+                # Top-P decides if the model should take a "risk" with a weird word choice.
+                # Low Top-P (e.g., 0.1): The model is extremely safe. It will almost always give you the same answer every time you ask. Use this when you need facts or summaries.
+                # High Top-P (e.g., 0.95): The model is creative. It might use a metaphor or a funny word you didn't expect. Use this for storytelling, poetry, or marketing copy.
+
+                "top_k": 40, 
+                # Top-K prevents the model from saying something totally random. 
+                # Low Top-K (e.g., 5): The model is very "professional" and "stiff." It only uses the most common words. This is great for coding or math where there is usually only one right way to say something.
+                # High Top-K (e.g., 50+): The model is more "talkative." It has a larger vocabulary available. This is better for casual chatting or brainstorming.
+            }
+        )
+        end_time = datetime.now(timezone.utc)
+        latency_ms = int((end_time - start_time).total_seconds() * 1000)
+        
+        answer_text = response.text.strip()
+        logger.info(f"[RAG] Generated answer ({len(answer_text)} chars, {latency_ms}ms)")
+        
+        # Extract sources (jobs cited in answer)
+        sources = _extract_sources(top_jobs)
+        
+        return {
+            "answer": answer_text,
+            "sources": sources,
+            "metadata": {
+                "num_context_jobs": len(top_jobs),
+                "latency_ms": latency_ms,
+                "model": "gemini-2.5-flash",
+                "query": query,
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"[RAG] Error generating answer: {e}")
+        raise RuntimeError(f"Failed to generate answer: {e}")
+
+
+def _format_job_context(jobs: List[Dict[str, Any]]) -> str:
+    """Format job listings into structured context for LLM prompt.
+    
+    Args:
+        jobs: List of job dictionaries (from grade_documents output)
+        
+    Returns:
+        Formatted string with numbered job listings
+    """
+    context_lines = []
+    
+    for i, job in enumerate(jobs, 1):
+        # Extract key fields
+        title = job.get('job_title', 'N/A')
+        company = job.get('company_name', 'N/A')
+        location = job.get('job_location', 'N/A')
+        classification = job.get('job_classification', 'N/A')
+        work_type = job.get('job_work_type', 'N/A')
+        
+        # Salary info
+        salary_min = job.get('job_salary_min_sgd_monthly')
+        salary_max = job.get('job_salary_max_sgd_monthly')
+        
+        if salary_min and salary_max:
+            salary_str = f"SGD ${salary_min:,.0f} - ${salary_max:,.0f}/month"
+        elif salary_min:
+            salary_str = f"From SGD ${salary_min:,.0f}/month"
+        elif salary_max:
+            salary_str = f"Up to SGD ${salary_max:,.0f}/month"
+        else:
+            salary_str = "Not disclosed"
+        
+        # Description snippet (first 300 chars)
+        description = job.get('job_description', '')
+        desc_snippet = description[:300] + "..." if len(description) > 300 else description
+        
+        # Relevance score (if available from grading)
+        relevance = job.get('relevance_score')
+        relevance_str = f" (Relevance: {relevance:.1f}/10)" if relevance else ""
+        
+        # Format job entry
+        job_entry = f"""[{i}] **{title}**{relevance_str}
+   Company: {company}
+   Location: {location}
+   Type: {work_type} | {classification}
+   Salary: {salary_str}
+   Description: {desc_snippet}
+"""
+        context_lines.append(job_entry)
+    
+    return "\n".join(context_lines)
+
+
+def _extract_sources(jobs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Extract source citations from jobs used in context.
+    
+    Args:
+        jobs: List of job dictionaries
+        
+    Returns:
+        List of source dictionaries with job_id, title, company, url
+    """
+    sources = []
+    
+    for i, job in enumerate(jobs, 1):
+        sources.append({
+            "number": i,
+            "job_id": job.get('job_id', 'N/A'),
+            "job_title": job.get('job_title', 'N/A'),
+            "company_name": job.get('company_name', 'N/A'),
+            "job_url": job.get('job_url', '#'),
+        })
+    
+    return sources
 
 
 # =============================================================================

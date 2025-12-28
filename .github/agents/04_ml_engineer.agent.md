@@ -15,8 +15,8 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
 - ✅ `/genai/` folder scaffolded
 
 **Current Priority: GenAI/RAG (Phase 4)**
-- 🔲 RAG Pipeline: Retrieve → Grade → Generate
-- 🔲 LangGraph Agent with tool orchestration
+- ✅ RAG Pipeline: Retrieve → Grade → Generate (Task 4.1 COMPLETE)
+- 🔲 LangGraph Agent with tool orchestration (Task 4.2 NEXT)
 - 🔲 FastAPI service exposure
 - 🔲 MCP Server for external AI assistants
 
@@ -493,19 +493,22 @@ async def retrieve_jobs(
 ) -> List[RetrievedJob]
 ```
 
-### Task 4.1.2: Document Grading & Re-ranking
+### Task 4.1.2: Document Grading & Re-ranking ✅ COMPLETE
 **File:** `genai/rag.py`
-- [ ] `grade_documents()`: Use Gemini to score relevance (0-10)
-- [ ] `rerank_documents()`: Re-order by combined score (vector + LLM grade)
-- [ ] Filter threshold: Remove documents with grade < 5
-- [ ] Return top results with explanations
+- [x] `grade_documents()`: Use Gemini to score relevance (0-10)
+- [x] `rerank_documents()`: Re-order by combined score (vector + LLM grade)
+- [x] Filter threshold: Remove documents with grade < 5
+- [x] Return top results with explanations
 
-### Task 4.1.3: Answer Generation
-**File:** `genai/rag.py`
-- [ ] `generate_answer()`: Construct prompt with context + query
-- [ ] Structured output: Use Pydantic models for response schema
-- [ ] Citation: Link answers to source jobs
-- [ ] Streaming support for long responses
+### Task 4.1.3: Answer Generation ✅ COMPLETE
+**File:** `genai/rag.py`, Test: `tests/genai/04_test_generate_answer.py`
+- [x] `generate_answer()`: Construct prompt with context + query
+- [x] Structured output: Dict with answer, sources, metadata
+- [x] Citation: Link answers to source jobs with [1], [2] numbering
+- [x] Helper functions: `_format_job_context()`, `_extract_sources()`
+- [x] Model: Gemini 2.5 Flash
+- [x] Empty context handling with graceful error messages
+- [x] Comprehensive test suite: 5 test scenarios (all passing)
 
 ---
 
