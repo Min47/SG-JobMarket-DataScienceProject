@@ -596,41 +596,94 @@ def search_jobs(query: str, location: str = None, ...) -> str:
 
 ---
 
-## 4.4: FastAPI Service
+## 4.4: FastAPI Service ✅ COMPLETE
 
-### Task 4.4.1: API Endpoints
-**File:** `genai/api.py`
-```python
-from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel
+### Task 4.4.1: API Endpoints ✅ COMPLETE
+**File:** `genai/api.py` (707 lines)
 
-app = FastAPI(title="SG Job Market AI API", version="1.0")
+**Implemented Endpoints:**
+1. **POST /v1/chat** - Conversational agent with LangGraph orchestration
+2. **POST /v1/search** - Direct vector search (bypasses agent)
+3. **GET /v1/jobs/{job_id}** - Fetch complete job details
+4. **GET /v1/jobs/{job_id}/similar** - Find semantically similar jobs
+5. **POST /v1/stats** - Aggregate salary statistics
+6. **GET /health** - Health check for monitoring (BigQuery, Vertex AI, embeddings)
+7. **GET /** - Root endpoint with API navigation
+8. **GET /docs** - Auto-generated Swagger UI
+9. **GET /redoc** - Auto-generated ReDoc documentation
 
-@app.post("/v1/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
-    """Conversational interface to the job search agent."""
+**Pydantic Models:**
+- [x] `ChatRequest`, `ChatResponse` - Agent conversations
+- [x] `SearchRequest`, `SearchResponse` - Vector search
+- [x] `StatsRequest`, `StatsResponse` - Analytics
+- [x] `HealthResponse` - Health status
+- [x] `ErrorResponse` - Standardized errors
 
-@app.post("/v1/search", response_model=SearchResponse)
-async def search(request: SearchRequest) -> SearchResponse:
-    """Direct vector search without agent reasoning."""
+### Task 4.4.2: Middleware & Security ✅ COMPLETE
+- [x] **Rate Limiting** (slowapi):
+  - POST /v1/chat: 10 req/min (compute-intensive)
+  - POST /v1/search: 50 req/min (fast queries)
+  - GET /v1/jobs/*: 100 req/min
+  - POST /v1/stats: 30 req/min
+- [x] **CORS Configuration**:
+  - Allowed origins: localhost:3000, localhost:8501, production dashboard
+  - All methods and headers enabled
+- [x] **Request Logging Middleware**:
+  - UUID request tracking
+  - Structured JSON logging
+  - Response time measurement
+  - Custom headers: X-Request-ID, X-Processing-Time-MS
+- [x] **Error Handling**:
+  - HTTP exception handler (consistent error format)
+  - General exception handler (with logging)
+  - Pydantic automatic validation (422 errors)
 
-@app.get("/v1/jobs/{job_id}/similar")
-async def similar_jobs(job_id: str, top_k: int = 5) -> List[Job]:
-    """Find jobs similar to a given job."""
+### Task 4.4.3: Testing ✅ COMPLETE
+**File:** `tests/genai/09_test_api.py`
+
+**Test Coverage:**
+- [x] Test 1: Root endpoint (GET /)
+- [x] Test 2: Health check (GET /health)
+- [x] Test 3: Direct vector search (POST /v1/search)
+- [x] Test 4: Get job details (GET /v1/jobs/{id})
+- [x] Test 5: Find similar jobs (GET /v1/jobs/{id}/similar)
+- [x] Test 6: Aggregate statistics (POST /v1/stats)
+- [x] Test 7: Conversational agent (POST /v1/chat) - optional slow test
+- [x] Test 8: CORS headers validation
+
+**To Run Tests:**
+```bash
+# Install dependencies first
+pip install fastapi uvicorn[standard] slowapi python-multipart
+
+# Run API tests
+python tests/genai/09_test_api.py
 ```
 
-### Task 4.4.2: Middleware & Security
-- [ ] Request validation with Pydantic
-- [ ] Rate limiting (100 req/min per IP)
-- [ ] API key authentication (optional)
-- [ ] CORS configuration
-- [ ] Request/response logging
+### Task 4.4.4: Local Development ✅ VALIDATED
+**To start the API server:**
+```bash
+# Option 1: Direct execution
+python -m genai.api
 
-### Task 4.4.3: Deployment
-- [ ] Dockerfile for FastAPI service
-- [ ] Cloud Run deployment script
-- [ ] Health check endpoint: `GET /health`
-- [ ] OpenAPI docs: `GET /docs`
+# Option 2: Uvicorn command
+uvicorn genai.api:app --reload --port 8000
+
+# Access documentation
+# - Swagger UI: http://localhost:8000/docs
+# - ReDoc: http://localhost:8000/redoc
+# - Health check: http://localhost:8000/health
+```
+
+### Task 4.4.5: Deployment ✅ READY FOR CLOUD RUN
+- [x] Create `Dockerfile.api` for containerization (multi-stage, ~5GB image)
+- [x] Cloud Run deployment script (`deployment/API_01_Deploy_FastAPI.ps1`)
+- [x] Cloud Build config (`cloudbuild.api.yaml`)
+- [x] Environment variable configuration (GCP_PROJECT_ID, BQ_DATASET_ID, GCP_REGION)
+- [x] Health check and readiness probes (FastAPI /health endpoint)
+- [x] Auto-scaling configuration (0-10 instances, 2 vCPU, 4GB RAM)
+
+**⚠️ Note:** Docker image is ~5GB due to PyTorch + CUDA dependencies. Cloud Build takes 15-20 minutes.
 
 ---
 

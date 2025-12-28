@@ -86,22 +86,21 @@ All components are modular, testable, documented, and cloud-ready.
 - ✅ BigQuery streaming API with 100% success rate (5,861+ jobs tested)
 - ✅ Cloud Function `etl-gcs-to-bigquery` deployed in asia-southeast1
 
-**Phase 3: ML/NLP** � **IN PROGRESS**
+**Phase 3: ML/NLP** 🔄 **IN PROGRESS**
 - ✅ Phase 3A: SBERT embeddings (6,775 jobs, Cloud Run Job deployed, vector index operational, scheduled 3 AM SGT daily)
 - 🔄 Phase 3B: Feature engineering (IN PROGRESS)
 - 🔲 Phase 3C: Model training (salary prediction, classification, clustering)
 - 🔲 Phase 3D: Model artifacts & deployment
 
-**Phase 4: API & Dashboards** 🔲 **PLANNED**
-- FastAPI REST endpoints
-
-**Phase 4: GenAI & Agents** 🔄 **IN PROGRESS**
-- ✅ Task 4.1.1: Query Embedding & Retrieval (embed_query, retrieve_jobs with hybrid search)
-- 🔲 Task 4.1.2: Document Grading (Gemini relevance scoring)
-- 🔲 Task 4.1.3: Answer Generation (Gemini Pro with context)
-- 🔲 Task 4.2: LangGraph Agent (state graph orchestration)
-- 🔲 Task 4.3: Tool Adapters (search, stats, similar jobs)
-- 🔲 Task 4.4: FastAPI service (REST endpoints)
+**Phase 4: GenAI & Agents** 🔄 **IN PROGRESS** (PRIORITY)
+- ✅ Task 4.1: RAG Pipeline (retrieve, grade, generate) - COMPLETE
+- ✅ Task 4.2: LangGraph Agent (state graph, nodes, testing) - COMPLETE
+- ✅ Task 4.3: Tool Adapters (4 tools: search, details, stats, similar) - COMPLETE
+- ✅ Task 4.4: FastAPI Service (7 endpoints, middleware, testing) - COMPLETE
+- 🔲 Task 4.5: Model Gateway (multi-provider LLM support)
+- 🔲 Task 4.6: Guardrails (PII detection, input validation)
+- 🔲 Task 4.7: Observability (tracing, metrics, logging)
+- 🔲 Task 4.8: MCP Server (external AI assistant integration)
 
 
 

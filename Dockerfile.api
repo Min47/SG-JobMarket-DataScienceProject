@@ -1,0 +1,96 @@
+# =============================================================================
+# Multi-stage Dockerfile for FastAPI GenAI Service
+# Target size: ~1.5GB (includes PyTorch + sentence-transformers)
+# Memory: 4GB recommended (for Gemini API calls + embeddings)
+# CPU: 2 vCPU
+# Timeout: 300s (Cloud Run default for services)
+# =============================================================================
+
+# =============================================================================
+# Stage 1: Builder - Install dependencies and create wheels
+# =============================================================================
+FROM python:3.13-slim-bookworm AS builder
+
+# Set working directory
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file
+COPY requirements.txt .
+
+# Create wheels for all dependencies (faster installation in runtime stage)
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+# =============================================================================
+# Stage 2: Runtime - Minimal production image
+# =============================================================================
+FROM python:3.13-slim-bookworm AS runtime
+
+# Set labels for metadata
+LABEL maintainer="SG Job Market Team"
+LABEL description="FastAPI GenAI service for Singapore Job Market Intelligence Platform"
+LABEL version="1.0"
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HOME=/app \
+    XDG_CACHE_HOME=/app/.cache \
+    HF_HOME=/app/.cache/huggingface \
+    TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers \
+    SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence-transformers \
+    PORT=8080
+
+# Create app directory and cache directories
+WORKDIR /app
+RUN mkdir -p /app/.cache/huggingface/transformers /app/.cache/sentence-transformers
+
+# Copy wheels from builder stage
+COPY --from=builder /wheels /wheels
+
+# Install dependencies from wheels
+RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* \
+    && rm -rf /wheels
+
+# Copy application code
+COPY utils/ /app/utils/
+COPY genai/ /app/genai/
+COPY nlp/ /app/nlp/
+
+# Pre-download embedding model (all-MiniLM-L6-v2) during build
+# This reduces cold start time in production
+RUN python3 -c "from sentence_transformers import SentenceTransformer; \
+    print('Downloading embedding model...'); \
+    model = SentenceTransformer('all-MiniLM-L6-v2'); \
+    print('Model downloaded successfully')"
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# Health check (FastAPI /health endpoint)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
+
+# Expose port
+EXPOSE 8080
+
+# Run FastAPI with Uvicorn
+# - 0.0.0.0:8080 for Cloud Run compatibility
+# - 2 workers for better concurrency
+# - --access-log for request logging
+CMD ["uvicorn", "genai.api:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8080", \
+     "--workers", "2", \
+     "--log-level", "info", \
+     "--access-log"]
