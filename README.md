@@ -95,12 +95,13 @@ All components are modular, testable, documented, and cloud-ready.
 **Phase 4: API & Dashboards** 🔲 **PLANNED**
 - FastAPI REST endpoints
 
-**Phase 5: GenAI & Agents** 🔲 **PLANNED**
-- RAG Pipeline (Vertex AI + BigQuery Vector Search)
-- LangGraph Orchestration
-- MCP Server Implementation
-- Streamlit dashboard
-- Looker Studio integration
+**Phase 4: GenAI & Agents** 🔄 **IN PROGRESS**
+- ✅ Task 4.1.1: Query Embedding & Retrieval (embed_query, retrieve_jobs with hybrid search)
+- 🔲 Task 4.1.2: Document Grading (Gemini relevance scoring)
+- 🔲 Task 4.1.3: Answer Generation (Gemini Pro with context)
+- 🔲 Task 4.2: LangGraph Agent (state graph orchestration)
+- 🔲 Task 4.3: Tool Adapters (search, stats, similar jobs)
+- 🔲 Task 4.4: FastAPI service (REST endpoints)
 
 
 

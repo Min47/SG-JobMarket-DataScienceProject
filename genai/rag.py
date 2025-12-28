@@ -14,10 +14,99 @@ from datetime import datetime, timezone
 
 from google.cloud import bigquery
 from google.cloud import aiplatform
+import numpy as np
 
 from utils.config import Settings
+from nlp.embeddings import EmbeddingGenerator
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Query Embedding (Reuses NLP module)
+# =============================================================================
+
+# Global embedding generator instance (singleton pattern)
+_EMBEDDING_GENERATOR: Optional[EmbeddingGenerator] = None
+
+
+def _get_embedding_generator() -> EmbeddingGenerator:
+    """Get or create singleton EmbeddingGenerator instance.
+    
+    Returns:
+        Shared EmbeddingGenerator instance
+    """
+    global _EMBEDDING_GENERATOR
+    if _EMBEDDING_GENERATOR is None:
+        logger.info("[RAG] Initializing EmbeddingGenerator")
+        _EMBEDDING_GENERATOR = EmbeddingGenerator()  # Uses default all-MiniLM-L6-v2
+    return _EMBEDDING_GENERATOR
+
+
+def embed_query(
+    query: str,
+    settings: Optional[Settings] = None,
+) -> List[float]:
+    """Generate 384-dim embedding for user query using all-MiniLM-L6-v2.
+    
+    Reuses the EmbeddingGenerator from nlp.embeddings module to avoid
+    code duplication and ensure consistent embedding generation.
+    
+    Args:
+        query: User's natural language query (max 512 tokens)
+        settings: Configuration settings (unused, kept for API compatibility)
+        
+    Returns:
+        384-dimensional L2-normalized float vector
+        
+    Raises:
+        ValueError: If query is empty or too short
+        
+    Example:
+        >>> embedding = embed_query("data scientist jobs in fintech")
+        >>> len(embedding)
+        384
+        >>> isinstance(embedding[0], float)
+        True
+    """
+    # Input validation
+    if not query or not query.strip():
+        raise ValueError("Query cannot be empty")
+    
+    query = query.strip()
+    
+    if len(query) < 3:
+        raise ValueError(f"Query too short (min 3 chars): '{query}'")
+    
+    logger.info(f"[RAG] Generating embedding for query: {query[:100]}...")
+    
+    # Truncate very long queries
+    if len(query) > 1000:  # ~500 tokens
+        query = query[:1000]
+        logger.warning("[RAG] Query truncated to 1000 chars")
+    
+    # Get shared embedding generator
+    generator = _get_embedding_generator()
+    
+    # Generate embedding using existing NLP module
+    # Note: We need to manually normalize for cosine similarity in BigQuery
+    embeddings = generator.embed_texts([query], show_progress=False)
+    
+    if embeddings.size == 0:
+        raise ValueError("Failed to generate embedding")
+    
+    # Extract single embedding
+    embedding_array = embeddings[0]  # Shape: (384,)
+    
+    # Normalize for cosine similarity (L2 norm = 1)
+    norm = np.linalg.norm(embedding_array)
+    if norm > 0:
+        embedding_array = embedding_array / norm
+    
+    logger.info(f"[RAG] Generated {len(embedding_array)}-dim embedding (norm={norm:.4f}, normalized)")
+    
+    # Convert to list for JSON serialization
+    return embedding_array.tolist()
 
 
 # =============================================================================
@@ -28,35 +117,182 @@ def retrieve_jobs(
     query: str,
     top_k: int = 10,
     filters: Optional[Dict[str, Any]] = None,
+    hybrid_weight: float = 0.7,
     settings: Optional[Settings] = None,
 ) -> List[Dict[str, Any]]:
-    """Retrieve relevant jobs using BigQuery Vector Search.
+    """Retrieve relevant jobs using BigQuery Vector Search with hybrid scoring.
     
-    TODO: Implement vector search pipeline
-    - Generate query embedding using Sentence-BERT or Vertex AI Embeddings API
-    - Query BigQuery vector index (CREATE VECTOR INDEX on embeddings column)
-    - Apply filters (location, salary range, work type, etc.)
-    - Return top_k results with relevance scores
+    Combines:
+    - Vector similarity (embedding cosine distance)
+    - Keyword matching (for exact term matches)
     
     Args:
         query: User's natural language query
         top_k: Number of results to return (default: 10)
-        filters: Optional filters (e.g., {"location": "Singapore", "min_salary": 5000})
+        filters: Optional filters:
+            - location: str (e.g., "Singapore", "Central")
+            - min_salary: float (monthly SGD)
+            - max_salary: float (monthly SGD)
+            - work_type: str (e.g., "Full Time", "Contract")
+            - classification: str (e.g., "Information & Communication Technology")
+        hybrid_weight: Weight for vector score (0.0-1.0, default 0.7)
+            - 0.7 = 70% vector + 30% keyword
+            - 1.0 = 100% vector only
         settings: Configuration settings
         
     Returns:
-        List of job dictionaries with metadata and relevance scores
+        List of job dictionaries with metadata and relevance scores:
+        - job_id: str
+        - source: str
+        - job_title: str
+        - company_name: str
+        - job_location: str
+        - job_classification: str
+        - job_work_type: str
+        - job_salary_min_sgd_monthly: Optional[float]
+        - job_salary_max_sgd_monthly: Optional[float]
+        - job_description: str (truncated to 500 chars)
+        - vector_distance: float (0.0-2.0, lower = more similar)
+        - keyword_score: float (0.0-1.0, higher = more matches)
+        - hybrid_score: float (weighted combination)
         
     Example:
-        >>> jobs = retrieve_jobs("data scientist with python experience", top_k=5)
+        >>> jobs = retrieve_jobs(
+        ...     "data scientist with python experience",
+        ...     top_k=5,
+        ...     filters={"min_salary": 5000, "location": "Singapore"}
+        ... )
         >>> for job in jobs:
-        ...     print(f"{job['title']} at {job['company']} - Score: {job['score']}")
+        ...     print(f"{job['job_title']} at {job['company_name']} - Score: {job['hybrid_score']:.3f}")
     """
-    logger.info(f"[RAG] Retrieving jobs for query: {query}")
+    logger.info(f"[RAG] Retrieving jobs for query: '{query}' (top_k={top_k}, filters={filters})")
     
-    # TODO: Replace with actual implementation
-    # Placeholder: Return empty list
-    return []
+    if not settings:
+        settings = Settings.load()
+    
+    # Step 1: Generate query embedding
+    try:
+        query_embedding = embed_query(query, settings)
+    except Exception as e:
+        logger.error(f"[RAG] Failed to generate query embedding: {e}")
+        return []
+    
+    # Step 2: Build BigQuery vector search query
+    client = bigquery.Client(project=settings.gcp_project_id)
+    
+    # Construct filter WHERE clauses
+    filter_clauses = []
+    if filters:
+        if "location" in filters:
+            # Partial match on location (e.g., "Singapore" matches "Singapore, Central")
+            filter_clauses.append(f"c.job_location LIKE '%{filters['location']}%'")
+        
+        if "min_salary" in filters:
+            filter_clauses.append(f"c.job_salary_min_sgd_monthly >= {filters['min_salary']}")
+        
+        if "max_salary" in filters:
+            filter_clauses.append(f"c.job_salary_max_sgd_monthly <= {filters['max_salary']}")
+        
+        if "work_type" in filters:
+            filter_clauses.append(f"c.job_work_type = '{filters['work_type']}'")
+        
+        if "classification" in filters:
+            filter_clauses.append(f"c.job_classification LIKE '%{filters['classification']}%'")
+    
+    where_clause = " AND " + " AND ".join(filter_clauses) if filter_clauses else ""
+    
+    # Keyword scoring: Count query terms in title + description
+    query_terms = query.lower().split()
+    keyword_conditions = " + ".join([
+        f"(CASE WHEN LOWER(c.job_title) LIKE '%{term}%' OR LOWER(c.job_description) LIKE '%{term}%' THEN 1 ELSE 0 END)"
+        for term in query_terms[:10]  # Limit to first 10 terms
+    ])
+    keyword_score_expr = f"({keyword_conditions}) / {len(query_terms)}" if query_terms else "0"
+    
+    # BigQuery SQL with VECTOR_SEARCH function
+    # VECTOR_SEARCH returns: query (RECORD), base (RECORD), distance (FLOAT)
+    # Access base table columns via base.column_name, distance directly
+    # cleaned_jobs is append-only, so use ROW_NUMBER() to get latest version
+    sql = f"""
+    WITH latest_jobs AS (
+        SELECT
+            *,
+            ROW_NUMBER() OVER (PARTITION BY job_id, source ORDER BY scrape_timestamp DESC) AS rn
+        FROM `{settings.gcp_project_id}.{settings.bigquery_dataset_id}.cleaned_jobs`
+    )
+    SELECT
+        c.job_id,
+        c.source,
+        c.job_title,
+        c.company_name,
+        c.job_location,
+        c.job_classification,
+        c.job_work_type,
+        c.job_salary_min_sgd_monthly,
+        c.job_salary_max_sgd_monthly,
+        SUBSTR(c.job_description, 1, 500) AS job_description_preview,
+        c.job_url,
+        vs.distance AS vector_distance,
+        {keyword_score_expr} AS keyword_score,
+        ({hybrid_weight} * (1.0 - vs.distance / 2.0) + {1.0 - hybrid_weight} * {keyword_score_expr}) AS hybrid_score
+    FROM VECTOR_SEARCH(
+        (SELECT * FROM `{settings.gcp_project_id}.{settings.bigquery_dataset_id}.job_embeddings`),
+        'embedding',
+        (SELECT {query_embedding} AS embedding),
+        distance_type => 'COSINE',
+        top_k => {top_k * 3}  -- Retrieve 3x for filtering
+    ) AS vs
+    JOIN latest_jobs c
+        ON vs.base.job_id = c.job_id AND vs.base.source = c.source AND c.rn = 1
+    WHERE TRUE {where_clause}
+    ORDER BY hybrid_score DESC
+    LIMIT {top_k}
+    """
+    
+    logger.info(f"[RAG] Executing BigQuery vector search...")
+    logger.debug(f"[RAG] Full SQL query:\n{sql}")
+    # print(f"Full SQL query:\n{sql}")
+    
+    # Execute query
+    try:
+        query_job = client.query(sql, project=settings.gcp_project_id)
+        results = list(query_job.result())
+        
+        logger.info(f"[RAG] Retrieved {len(results)} jobs from BigQuery")
+        
+        # Convert to dictionaries
+        jobs = []
+        for row in results:
+            job = {
+                "job_id": row.job_id,
+                "source": row.source,
+                "job_title": row.job_title,
+                "company_name": row.company_name,
+                "job_location": row.job_location,
+                "job_classification": row.job_classification,
+                "job_work_type": row.job_work_type,
+                "job_salary_min_sgd_monthly": row.job_salary_min_sgd_monthly,
+                "job_salary_max_sgd_monthly": row.job_salary_max_sgd_monthly,
+                "job_description": row.job_description_preview,
+                "job_url": row.job_url,
+                "vector_distance": float(row.vector_distance),
+                "keyword_score": float(row.keyword_score),
+                "hybrid_score": float(row.hybrid_score),
+            }
+            jobs.append(job)
+        
+        if jobs:
+            logger.info(
+                f"[RAG] Top result: '{jobs[0]['job_title']}' "
+                f"(score={jobs[0]['hybrid_score']:.3f})"
+            )
+        
+        return jobs
+    
+    except Exception as e:
+        logger.error(f"[RAG] BigQuery vector search failed: {e}")
+        logger.exception(e)
+        return []
 
 
 def grade_documents(
