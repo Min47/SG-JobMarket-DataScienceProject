@@ -675,13 +675,13 @@ uvicorn genai.api:app --reload --port 8000
 # - Health check: http://localhost:8000/health
 ```
 
-### Task 4.4.5: Deployment ✅ READY FOR CLOUD RUN
-- [x] Create `Dockerfile.api` for containerization (multi-stage, ~5GB image)
-- [x] Cloud Run deployment script (`deployment/API_01_Deploy_FastAPI.ps1`)
-- [x] Cloud Build config (`cloudbuild.api.yaml`)
-- [x] Environment variable configuration (GCP_PROJECT_ID, BQ_DATASET_ID, GCP_REGION)
-- [x] Health check and readiness probes (FastAPI /health endpoint)
-- [x] Auto-scaling configuration (0-10 instances, 2 vCPU, 4GB RAM)
+### Task 4.4.5: Deployment ✅ Need to validate
+- [ ] Create `Dockerfile.api` for containerization (multi-stage, ~5GB image)
+- [ ] Cloud Run deployment script (`deployment/API_01_Deploy_FastAPI.ps1`)
+- [ ] Cloud Build config (`cloudbuild.api.yaml`)
+- [ ] Environment variable configuration (GCP_PROJECT_ID, BQ_DATASET_ID, GCP_REGION)
+- [ ] Health check and readiness probes (FastAPI /health endpoint)
+- [ ] Auto-scaling configuration (0-10 instances, 2 vCPU, 4GB RAM)
 
 **⚠️ Note:** Docker image is ~5GB due to PyTorch + CUDA dependencies. Cloud Build takes 15-20 minutes.
 
