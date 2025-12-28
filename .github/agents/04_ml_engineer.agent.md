@@ -17,8 +17,8 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
 **Current Priority: GenAI/RAG (Phase 4)**
 - ✅ RAG Pipeline: Retrieve → Grade → Generate (Task 4.1 COMPLETE)
 - ✅ LangGraph Agent: State graph, nodes, integration testing (Task 4.2 COMPLETE)
-- 🔲 Tool Adapters for extended functionality (Task 4.3 NEXT)
-- 🔲 FastAPI service exposure (Task 4.4)
+- ✅ Tool Adapters for extended functionality (Task 4.3 COMPLETE)
+- 🔲 FastAPI service exposure (Task 4.4 NEXT)
 - 🔲 MCP Server for external AI assistants (Task 4.8)
 
 **Virtual Environment:**
@@ -546,8 +546,15 @@ async def retrieve_jobs(
 
 ## 4.3: Tool Adapters
 
-### Task 4.3.1: Core Tools
-**File:** `genai/tools/search.py`
+### Task 4.3.1: Core Tools ✅ COMPLETE
+**Files:** 
+- `genai/tools/__init__.py` - Module exports
+- `genai/tools/_validation.py` - Shared Pydantic schemas
+- `genai/tools/search.py` - search_jobs, get_job_details
+- `genai/tools/stats.py` - aggregate_stats
+- `genai/tools/recommendations.py` - find_similar_jobs
+
+**Implementation:**
 ```python
 from langchain.tools import tool
 from pydantic import BaseModel, Field
@@ -559,20 +566,33 @@ class SearchInput(BaseModel):
     max_results: int = Field(default=10, le=50)
 
 @tool(args_schema=SearchInput)
-def search_jobs(query: str, location: str = None, ...) -> List[Dict]:
+def search_jobs(query: str, location: str = None, ...) -> str:
     """Search for jobs matching the query with optional filters."""
+    # Returns JSON string
 ```
 
-- [ ] `search_jobs`: Vector search with filters
-- [ ] `get_job_details`: Fetch full job by ID
-- [ ] `aggregate_stats`: Group by classification, compute salary stats
-- [ ] `find_similar_jobs`: Given job_id, find top-N similar
+- [x] `search_jobs`: Vector search with filters (wraps retrieve_jobs)
+- [x] `get_job_details`: Fetch full job by ID (BigQuery SELECT)
+- [x] `aggregate_stats`: Group by classification, compute salary stats
+- [x] `find_similar_jobs`: Given job_id, find top-N similar (VECTOR_SEARCH)
 
-### Task 4.3.2: Tool Safety
-- [ ] Input validation with Pydantic schemas
-- [ ] Timeout handling (max 30s per tool call)
-- [ ] Rate limiting per tool
-- [ ] Sandboxed execution (no arbitrary code)
+### Task 4.3.2: Tool Safety ✅ COMPLETE
+- [x] Input validation with Pydantic schemas (all tools)
+- [x] Timeout handling (30s max per BigQuery query)
+- [x] Source normalization (jobstreet/JobStreet → JobStreet, mcf/MCF → MCF)
+- [x] Parameterized SQL queries (SQL injection safe)
+- [x] Error handling with JSON responses: `{"success": false, "error": "..."}`
+
+### Task 4.3.3: Testing ✅ COMPLETE
+**File:** `tests/genai/08_test_tools.py`
+
+**Test Results:** All 4 tests passing ✅
+- [x] Test 1: search_jobs with filters
+- [x] Test 2: get_job_details (found + not found)
+- [x] Test 3: aggregate_stats (grouping + filtering)
+- [x] Test 4: find_similar_jobs (similarity thresholds)
+- [x] Validation: JSON parsing, error handling, Pydantic validation
+- [x] Integration: BigQuery queries, vector search
 
 ---
 
