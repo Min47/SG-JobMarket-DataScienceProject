@@ -46,6 +46,9 @@ from genai.agent import JobMarketAgent
 from genai.rag import retrieve_jobs, generate_answer
 from genai.tools import search_jobs, get_job_details, aggregate_stats, find_similar_jobs
 
+# Import guardrails
+from genai.guardrails import InputGuardrails, OutputGuardrails
+
 logger = configure_logging(service_name="genai-api")
 
 # =============================================================================
@@ -215,6 +218,12 @@ def get_agent() -> JobMarketAgent:
     return _agent
 
 
+# Initialize guardrails
+input_guards = InputGuardrails()
+output_guards = OutputGuardrails()
+logger.info("[API] Guardrails initialized (PII, injection, hallucination detection)")
+
+
 # =============================================================================
 # Middleware: Request Logging
 # =============================================================================
@@ -306,6 +315,22 @@ async def chat_endpoint(request: Request, chat_request: ChatRequest) -> ChatResp
     logger.info(f"[Chat Endpoint] Query: {chat_request.message[:100]}...")
     
     try:
+        # === GUARDRAILS: Validate input ===
+        validation_result = input_guards.validate(chat_request.message)
+        if not validation_result.passed:
+            logger.warning(
+                f"[Chat Endpoint] Input blocked by guardrails: {validation_result.reason}",
+                extra={"violations": validation_result.violations}
+            )
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": validation_result.reason,
+                    "violations": validation_result.violations,
+                    "severity": validation_result.severity.value,
+                }
+            )
+        
         # Get or create conversation ID
         conversation_id = chat_request.conversation_id or str(uuid.uuid4())
         
@@ -323,6 +348,27 @@ async def chat_endpoint(request: Request, chat_request: ChatRequest) -> ChatResp
         # which already has "answer" and "sources" at top level
         answer = result.get("answer", "No answer generated")
         sources = result.get("sources", [])
+        
+        # === GUARDRAILS: Validate output ===
+        # Get context jobs for hallucination check
+        context_jobs = result.get("graded_jobs", [])
+        output_validation = output_guards.validate(
+            response={"answer": answer, "sources": sources},
+            context_jobs=context_jobs
+        )
+        
+        if not output_validation.passed:
+            logger.warning(
+                f"[Chat Endpoint] Output validation warning: {output_validation.reason}",
+                extra={"violations": output_validation.violations}
+            )
+            # For output issues, log warning but don't block (WARNING severity)
+            # unless it's BLOCKED severity
+            if output_validation.severity.value == "blocked":
+                raise HTTPException(
+                    status_code=500,
+                    detail="Response failed safety checks. Please try a different query."
+                )
         
         # Build metadata (extract from result["metadata"] which contains execution stats)
         metadata = {
@@ -342,6 +388,9 @@ async def chat_endpoint(request: Request, chat_request: ChatRequest) -> ChatResp
             metadata=metadata
         )
         
+    except HTTPException:
+        # Let HTTPExceptions propagate (guardrail blocks, etc.)
+        raise
     except Exception as e:
         logger.error(f"[Chat Endpoint] Error: {e}", exc_info=True)
         raise HTTPException(
@@ -383,6 +432,21 @@ async def search_endpoint(request: Request, search_request: SearchRequest) -> Se
     start_time = time.time()
     
     try:
+        # === GUARDRAILS: Validate input ===
+        validation_result = input_guards.validate(search_request.query)
+        if not validation_result.passed:
+            logger.warning(
+                f"[Search Endpoint] Input blocked: {validation_result.reason}",
+                extra={"violations": validation_result.violations}
+            )
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": validation_result.reason,
+                    "violations": validation_result.violations,
+                }
+            )
+        
         # Call retrieve_jobs directly (bypasses agent)
         jobs = retrieve_jobs(
             query=search_request.query,
@@ -400,6 +464,9 @@ async def search_endpoint(request: Request, search_request: SearchRequest) -> Se
             processing_time_ms=processing_time_ms
         )
         
+    except HTTPException:
+        # Let HTTPExceptions propagate (guardrail blocks, etc.)
+        raise
     except Exception as e:
         logger.error(f"[Search Endpoint] Error: {e}", exc_info=True)
         raise HTTPException(

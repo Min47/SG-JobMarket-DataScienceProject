@@ -97,8 +97,8 @@ All components are modular, testable, documented, and cloud-ready.
 - ✅ Task 4.2: LangGraph Agent (state graph, nodes, testing) - COMPLETE
 - ✅ Task 4.3: Tool Adapters (4 tools: search, details, stats, similar) - COMPLETE
 - ✅ Task 4.4: FastAPI Service (7 endpoints, middleware, testing) - COMPLETE
-- 🔲 Task 4.5: Model Gateway (multi-provider LLM support)
-- 🔲 Task 4.6: Guardrails (PII detection, input validation)
+- ✅ Task 4.5: Model Gateway (Vertex AI + Ollama, fallback) - COMPLETE
+- ✅ Task 4.6: Guardrails (PII, injection blocking, hallucination, 10 tests) - COMPLETE
 - 🔲 Task 4.7: Observability (tracing, metrics, logging)
 - 🔲 Task 4.8: MCP Server (external AI assistant integration)
 

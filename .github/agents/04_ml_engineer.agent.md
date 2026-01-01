@@ -15,14 +15,42 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
 - ✅ `/genai/` folder scaffolded
 
 **Current Priority: GenAI/RAG (Phase 4)**
-- ✅ RAG Pipeline: Retrieve → Grade → Generate (Task 4.1 COMPLETE)
-- ✅ LangGraph Agent: State graph, nodes, integration testing (Task 4.2 COMPLETE)
-- ✅ Tool Adapters for extended functionality (Task 4.3 COMPLETE)
-- ✅ FastAPI service exposure (Task 4.4 COMPLETE - Deployed to Cloud Run)
-- ✅ Model Gateway for multi-provider LLM support (Task 4.5 COMPLETE)
-- 🔲 Guardrails & Policy Chains (Task 4.6 NEXT)
-- 🔲 Observability (Task 4.7)
-- 🔲 MCP Server for external AI assistants (Task 4.8)
+- ✅ Task 4.1: RAG Pipeline (retrieve, grade, generate) - COMPLETE
+- ✅ Task 4.2: LangGraph Agent (state graph, nodes, testing) - COMPLETE
+- ✅ Task 4.3: Tool Adapters (4 tools: search, details, stats, similar) - COMPLETE
+- ✅ Task 4.4: FastAPI Service (7 endpoints, middleware, deployed to Cloud Run) - COMPLETE
+- ✅ Task 4.5: Model Gateway (Vertex AI + Ollama, fallback, cost tracking) - COMPLETE
+  - Fixed JSON truncation issues (max_tokens optimization)
+  - Improved rewrite logic (min 3 jobs, avg on ALL docs)
+- ✅ Task 4.6: Guardrails & Policy Chains - COMPLETE
+  - PII detection (Singapore NRIC, phone, email, credit cards)
+  - Injection blocking (prompt injection, SQL injection) - custom regex (industry standard)
+  - Hallucination detection (verifies cited jobs exist in context)
+  - FastAPI middleware integration (input/output validation)
+  - 10 comprehensive tests (core + API, all passing) → tests/genai/11_test_guardrails.py
+  
+  **Test Results (tests/genai/11_test_guardrails.py):**
+  | Test | Type | Endpoint | Result |
+  |------|------|----------|--------|
+  | 1. PII Detection | Core | N/A | ✅ Detects NRIC/phone/email, redacts correctly |
+  | 2. Injection Detection | Core | N/A | ✅ Blocks prompt + SQL injection patterns |
+  | 3. Input Guardrails | Core | N/A | ✅ Length/PII/injection validation working |
+  | 4. Output Guardrails | Core | N/A | ✅ Hallucination detection, structure validation |
+  | 5. Chat Blocks Malicious | API | POST /v1/chat | ✅ Returns 400 for PII/injection |
+  | 6. Chat Allows Normal | API | POST /v1/chat | ✅ 200 OK, full agent execution (61s) |
+  | 7. Search Blocks Malicious | API | POST /v1/search | ✅ Returns 400 for PII/injection |
+  | 8. Search Allows Normal | API | POST /v1/search | ✅ 200 OK, 5 jobs found (3s) |
+  | 9. Pydantic Validation | API | POST /v1/chat | ✅ Returns 422 for empty/long queries |
+  | 10. Health Unaffected | API | GET /health | ✅ 200 OK, no guardrail interference |
+  
+  **Note on Injection Detection Libraries:**
+  - Considered: `rebuff` (prompt injection), `sqlparse` (SQL parsing)
+  - **Decision: Custom regex** - Industry standard for production systems
+  - Reasons: Lightweight, no dependencies, fast (<5ms), full control, auditable
+  - Enterprise solutions (AWS Bedrock Guardrails, Azure Content Safety) also use rule-based systems
+  
+- 🔲 Task 4.7: Observability (tracing, metrics, logging) - NEXT
+- 🔲 Task 4.8: MCP Server (external AI assistant integration)
 
 **Virtual Environment:**
 - ⚠️ Always use `.venv/Scripts/python.exe` for all commands
