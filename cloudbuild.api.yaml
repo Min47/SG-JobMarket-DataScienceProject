@@ -4,7 +4,7 @@
 # =============================================================================
 
 steps:
-  # Step 1: Build Docker image
+  # Step 1: Build Docker image (optimized with CPU-only PyTorch)
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
@@ -12,8 +12,9 @@ steps:
       - '--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE_NAME}:latest'
       - '--tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE_NAME}:${BUILD_ID}'
       - '--cache-from=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE_NAME}:latest'
+      - '--build-arg=BUILDKIT_INLINE_CACHE=1'
       - '.'
-    timeout: 1800s  # 30 minutes
+    timeout: 900s  # 15 minutes (reduced from 30 due to smaller dependencies)
 
   # Step 2: Push image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
@@ -35,8 +36,8 @@ substitutions:
 # Build configuration
 options:
   machineType: 'E2_HIGHCPU_8'  # 8 vCPU for faster builds
-  diskSizeGb: 100
+  diskSizeGb: 50  # Reduced from 100GB (optimized dependencies)
   logging: CLOUD_LOGGING_ONLY
   
 # Timeout for entire build (must exceed sum of step timeouts)
-timeout: 2400s  # 40 minutes
+timeout: 1200s  # 20 minutes (reduced from 40 due to optimization)

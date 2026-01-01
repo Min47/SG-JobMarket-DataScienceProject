@@ -1,9 +1,15 @@
 # =============================================================================
-# Multi-stage Dockerfile for FastAPI GenAI Service
-# Target size: ~1.5GB (includes PyTorch + sentence-transformers)
+# Multi-stage Dockerfile for FastAPI GenAI Service (OPTIMIZED)
+# Target size: ~1.8GB (down from 5GB - uses CPU-only PyTorch)
 # Memory: 4GB recommended (for Gemini API calls + embeddings)
 # CPU: 2 vCPU
 # Timeout: 300s (Cloud Run default for services)
+# 
+# Optimizations:
+# - Uses requirements-api.txt (excludes training-only deps: xgboost, lightgbm)
+# - CPU-only PyTorch (saves ~3GB of CUDA libraries)
+# - Aggressive cache cleanup
+# - Optimized layer ordering for better caching
 # =============================================================================
 
 # =============================================================================
@@ -14,18 +20,19 @@ FROM python:3.13-slim-bookworm AS builder
 # Set working directory
 WORKDIR /build
 
-# Install build dependencies
+# Install build dependencies (minimal set for compilation)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
-    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file
-COPY requirements.txt .
+# Copy API-specific requirements file
+COPY requirements-api.txt .
 
 # Create wheels for all dependencies (faster installation in runtime stage)
-RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+# Use CPU-only PyTorch index to avoid downloading CUDA libraries
+RUN pip install --no-cache-dir --upgrade pip wheel && \
+    pip wheel --no-cache-dir --wheel-dir /wheels -r requirements-api.txt
 
 # =============================================================================
 # Stage 2: Runtime - Minimal production image
@@ -34,8 +41,8 @@ FROM python:3.13-slim-bookworm AS runtime
 
 # Set labels for metadata
 LABEL maintainer="SG Job Market Team"
-LABEL description="FastAPI GenAI service for Singapore Job Market Intelligence Platform"
-LABEL version="1.0"
+LABEL description="FastAPI GenAI service (optimized, CPU-only)"
+LABEL version="1.1"
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -56,9 +63,10 @@ RUN mkdir -p /app/.cache/huggingface/transformers /app/.cache/sentence-transform
 # Copy wheels from builder stage
 COPY --from=builder /wheels /wheels
 
-# Install dependencies from wheels
-RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* \
-    && rm -rf /wheels
+# Install dependencies from wheels and clean up aggressively
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* && \
+    rm -rf /wheels /root/.cache /tmp/*
 
 # Copy application code
 COPY utils/ /app/utils/
@@ -70,7 +78,8 @@ COPY nlp/ /app/nlp/
 RUN python3 -c "from sentence_transformers import SentenceTransformer; \
     print('Downloading embedding model...'); \
     model = SentenceTransformer('all-MiniLM-L6-v2'); \
-    print('Model downloaded successfully')"
+    print('Model downloaded successfully')" && \
+    rm -rf /root/.cache/pip
 
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && \
@@ -78,7 +87,13 @@ RUN useradd -m -u 1000 appuser && \
 USER appuser
 
 # Health check (FastAPI /health endpoint)
+# Use simpler health check to reduce overhead
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python3 -c "import http.client; \
+        conn = http.client.HTTPConnection('localhost', 8080); \
+        conn.request('GET', '/health'); \
+        resp = conn.getresponse(); \
+        exit(0 if resp.status == 200 else 1)"
     CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
 # Expose port

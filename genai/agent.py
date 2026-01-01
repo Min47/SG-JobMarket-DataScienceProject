@@ -154,11 +154,18 @@ def retrieve_node(state: AgentState) -> AgentState:
         state["retrieved_jobs"] = jobs
         state["metadata"]["retrieval_count"] = len(jobs)
         
-        logger.info(
-            f"[Agent Node: Retrieve] Retrieved {len(jobs)} jobs, "
-            f"distances: {min(j['vector_distance'] for j in jobs):.3f}-"
-            f"{max(j['vector_distance'] for j in jobs):.3f}"
-        )
+        # Handle empty results gracefully
+        if not jobs:
+            logger.warning(
+                f"[Agent Node: Retrieve] Retrieved 0 jobs. "
+                f"Filters may be too restrictive: {filters}"
+            )
+        else:
+            logger.info(
+                f"[Agent Node: Retrieve] Retrieved {len(jobs)} jobs, "
+                f"distances: {min(j['vector_distance'] for j in jobs):.3f}-"
+                f"{max(j['vector_distance'] for j in jobs):.3f}"
+            )
         
     except Exception as e:
         logger.error(f"[Agent Node: Retrieve] Failed: {e}")

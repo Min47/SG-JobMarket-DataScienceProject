@@ -27,8 +27,9 @@ $REPO_ROOT = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 # Environment variables for Cloud Run
 $ENV_VARS = @(
     "GCP_PROJECT_ID=$PROJECT_ID",
-    "BQ_DATASET_ID=sg_job_market",
+    "BIGQUERY_DATASET_ID=sg_job_market",
     "GCP_REGION=$REGION",
+    "GCS_BUCKET=sg-job-market-data"
     "PYTHONUNBUFFERED=1"
 )
 
@@ -71,6 +72,33 @@ if ($LASTEXITCODE -ne 0) {
     }
 } else {
     Write-Host "      ✓ Repository exists: $REPOSITORY" -ForegroundColor Green
+}
+
+# =============================================================================
+# Step 1.5: Add IAM Policy Binding for Service Account
+# =============================================================================
+Write-Host "[1.5/6] Ensuring Service Account has required IAM roles..." -ForegroundColor Yellow
+$roles = @(
+    "roles/run.admin",
+    "roles/iam.serviceAccountUser",
+    "roles/artifactregistry.writer",
+    "roles/logging.logWriter",
+    "roles/aiplatform.user"
+)
+
+foreach ($role in $roles) {
+    gcloud projects add-iam-policy-binding $PROJECT_ID `
+        --member="serviceAccount:$SERVICE_ACCOUNT" `
+        --role="$role" `
+        --quiet `
+        --project=$PROJECT_ID
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "      ✓ Granted $role to $SERVICE_ACCOUNT" -ForegroundColor Green
+    } else {
+        Write-Host "      ✗ Failed to grant $role to $SERVICE_ACCOUNT" -ForegroundColor Red
+        exit 1
+    }
 }
 
 # =============================================================================
@@ -119,7 +147,7 @@ Write-Host "      Min/Max Instances: $MIN_INSTANCES/$MAX_INSTANCES" -ForegroundC
 # Build environment variables string
 $ENV_VARS_STRING = ($ENV_VARS -join ',')
 
-gcloud run services deploy $SERVICE_NAME `
+gcloud run deploy $SERVICE_NAME `
     --image=$FULL_IMAGE_PATH `
     --platform=managed `
     --region=$REGION `

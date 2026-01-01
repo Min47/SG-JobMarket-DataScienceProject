@@ -60,7 +60,7 @@ class ChatRequest(BaseModel):
         min_length=3,
         max_length=1000,
         description="User's natural language query",
-        examples=["Find me machine learning engineer jobs with salary > $8000"]
+        examples=["Find me accountants jobs with salary > $3000"]
     )
     conversation_id: Optional[str] = Field(
         default=None,
@@ -70,7 +70,7 @@ class ChatRequest(BaseModel):
     filters: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Optional filters: location, min_salary, max_salary, work_type",
-        examples=[{"location": "Central", "min_salary": 5000}]
+        examples=[{"location": "Central", "min_salary": 3000}]
     )
 
 
@@ -319,18 +319,20 @@ async def chat_endpoint(request: Request, chat_request: ChatRequest) -> ChatResp
         )
         
         # Extract response components
-        answer = result.get("final_answer", {}).get("answer", "No answer generated")
-        sources = result.get("final_answer", {}).get("sources", [])
+        # Note: agent.run() returns final_state["final_answer"] directly,
+        # which already has "answer" and "sources" at top level
+        answer = result.get("answer", "No answer generated")
+        sources = result.get("sources", [])
         
-        # Build metadata
+        # Build metadata (extract from result["metadata"] which contains execution stats)
         metadata = {
             "conversation_id": conversation_id,
-            "retrieved_count": len(result.get("retrieved_jobs", [])),
-            "graded_count": len(result.get("graded_jobs", [])),
-            "average_relevance_score": result.get("average_relevance_score", 0.0),
-            "rewrite_count": result.get("rewrite_count", 0),
-            "original_query": result.get("original_query", chat_request.message),
-            "final_query": result.get("query", chat_request.message),
+            "retrieved_count": result.get("metadata", {}).get("retrieved_count", 0),
+            "graded_count": result.get("metadata", {}).get("graded_count", 0),
+            "average_relevance_score": result.get("metadata", {}).get("average_relevance_score", 0.0),
+            "rewrite_count": result.get("metadata", {}).get("rewrite_count", 0),
+            "original_query": result.get("metadata", {}).get("original_query", chat_request.message),
+            "final_query": result.get("metadata", {}).get("final_query", chat_request.message),
         }
         
         return ChatResponse(

@@ -1,0 +1,51 @@
+# =============================================================================
+# API-only Dependencies (optimized for production deployment)
+# Excludes training-only packages (lightgbm, xgboost, scikit-learn)
+# Uses CPU-only PyTorch to reduce image size by ~3GB
+# =============================================================================
+
+# Core API Framework
+fastapi==0.128.0
+uvicorn==0.40.0
+slowapi==0.1.9
+python-multipart==0.0.21
+pydantic==2.12.5
+
+# GenAI & LLM Orchestration
+langchain==1.2.0
+langgraph==1.0.5
+google-cloud-aiplatform==1.132.0
+mcp==1.24.0
+
+# NLP & Embeddings (CPU-only PyTorch)
+# Note: sentence-transformers will install torch automatically, but we'll
+# install CPU-only version explicitly first
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.9.1+cpu
+sentence-transformers==5.2.0
+
+# GCP Services
+google-cloud-bigquery==3.38.0
+google-cloud-storage==3.7.0
+db-dtypes==1.5.0
+
+# Data Processing
+pandas==2.3.3
+numpy<2.0.0  # Compatibility with sentence-transformers
+
+# Utilities
+tqdm==4.67.1
+python-dotenv==1.2.1
+python-dateutil==2.9.0
+httpx==0.28.1
+aiohttp==3.13.2
+requests==2.32.5
+
+# Text Processing (minimal)
+beautifulsoup4==4.14.3
+langdetect==1.0.9
+
+# Monitoring (optional, for production observability)
+# opentelemetry-api==1.22.0
+# opentelemetry-sdk==1.22.0
+# prometheus-client==0.21.0

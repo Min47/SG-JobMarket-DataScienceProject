@@ -504,9 +504,18 @@ def generate_answer(
     if not context_jobs:
         logger.warning("[RAG] No context jobs provided for answer generation")
         return {
-            "answer": "I couldn't find any relevant jobs matching your query. Please try a different search term.",
+            "answer": (
+                "I couldn't find any jobs matching your search criteria. "
+                "This might be because:\n"
+                "- The filters are too restrictive (try relaxing location or salary requirements)\n"
+                "- The query terms don't match available jobs\n"
+                "- Try a broader search without filters first."
+            ),
             "sources": [],
-            "metadata": {"error": "No context"}
+            "metadata": {
+                "error": "No context",
+                "suggestion": "Try removing filters or using broader search terms"
+            }
         }
     
     if not settings:
@@ -660,7 +669,7 @@ def _extract_sources(jobs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     
     for i, job in enumerate(jobs, 1):
         sources.append({
-            "number": i,
+            "number": str(i),  # Convert to string for Pydantic validation
             "job_id": job.get('job_id', 'N/A'),
             "job_title": job.get('job_title', 'N/A'),
             "company_name": job.get('company_name', 'N/A'),
