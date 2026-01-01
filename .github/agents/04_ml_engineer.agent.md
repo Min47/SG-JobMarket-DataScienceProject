@@ -19,7 +19,9 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
 - ✅ LangGraph Agent: State graph, nodes, integration testing (Task 4.2 COMPLETE)
 - ✅ Tool Adapters for extended functionality (Task 4.3 COMPLETE)
 - ✅ FastAPI service exposure (Task 4.4 COMPLETE - Deployed to Cloud Run)
-- 🔲 Model Gateway for multi-provider LLM support (Task 4.5 NEXT)
+- ✅ Model Gateway for multi-provider LLM support (Task 4.5 COMPLETE)
+- 🔲 Guardrails & Policy Chains (Task 4.6 NEXT)
+- 🔲 Observability (Task 4.7)
 - 🔲 MCP Server for external AI assistants (Task 4.8)
 
 **Virtual Environment:**
@@ -462,7 +464,7 @@ Can upgrade to Vertex AI embeddings later for production.
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ MODEL GATEWAY (genai/gateway.py)                                            │
 │ ─────────────────────────────────────────────────────────────────────────── │
-│ Supported: Vertex AI Gemini, OpenAI GPT-4, Local Ollama                     │
+│ Supported: Vertex AI Gemini, Local Ollama                                   │
 │ Features: Routing, rate limits, fallback chains, cost tracking              │
 │ Config: MODEL_PRIORITY = ["gemini-pro", "gpt-4-turbo", "ollama/llama3"]     │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -690,41 +692,67 @@ uvicorn genai.api:app --reload --port 8000
 
 ---
 
-## 4.5: Model Gateway
+## 4.5: Model Gateway ✅ COMPLETE
 
-### Task 4.5.1: Multi-Provider Support
+### Task 4.5.1: Multi-Provider Support ✅ COMPLETE
 **File:** `genai/gateway.py`
+
+**Providers (2 providers):**
 ```python
 class ModelGateway:
-    """Unified interface for multiple LLM providers."""
+    """Unified interface for LLM providers."""
     
     PROVIDERS = {
-        "gemini-pro": VertexAIProvider,
-        "gpt-4-turbo": OpenAIProvider,
-        "ollama/llama3": OllamaProvider,
+        "vertexai": VertexAIProvider,    # Cloud: Gemini 2.5 Flash ($0.075/1M)
+        "ollama": OllamaProvider,         # Local: Llama 3.1 (free)
     }
     
-    async def generate(
-        self,
-        prompt: str,
-        model: str = "gemini-pro",
-        fallback: bool = True,
-    ) -> GenerationResult
+    # Toggle priority with one line change:
+    # self.provider_priority = ["vertexai", "ollama"]  # Vertex first (production)
+    # self.provider_priority = ["ollama", "vertexai"]  # Ollama first (dev)
 ```
 
-- [ ] Vertex AI Gemini integration (primary)
-- [ ] OpenAI fallback (optional, if API key provided)
-- [ ] Local Ollama support (for development)
+**Key Features:**
+- [x] 2 providers only: Vertex AI (Gemini 2.5 Flash) + Ollama (Llama 3.1 local)
+- [x] Easy priority toggle via single line change in `__init__`
+- [x] Backward compatibility: "gemini" maps to "vertexai"
+- [x] Automatic fallback chain with exponential backoff
+- [x] Cost tracking per provider (cumulative statistics)
 
-### Task 4.5.2: Reliability Features
-- [ ] Automatic fallback on failure
-- [ ] Retry with exponential backoff
-- [ ] Request timeout handling
-- [ ] Cost tracking per request
+### Task 4.5.2: Integration with RAG & Agent ✅ COMPLETE
+**Files:** `genai/rag.py`, `genai/agent.py`
+- [x] Replaced direct Vertex AI calls in `grade_documents()` with gateway
+- [x] Replaced direct Vertex AI calls in `generate_answer()` with gateway
+- [x] Replaced direct Vertex AI calls in `rewrite_node()` with gateway
+- [x] Singleton pattern for gateway instance (shared across modules)
+- [x] Cost metadata included in responses
+
+**Benefits:**
+- Multi-provider support without code changes (just env variables)
+- Automatic fallback if Gemini rate limited or down
+- Cost optimization (routes to cheapest available)
+- A/B testing different models
+- Local development with Ollama (no API costs)
+
+### Task 4.5.3: Testing ✅ COMPLETE
+**File:** `tests/genai/10_test_model_gateway.py` (moved from tests/)
+
+**Test Suite:**
+1. Provider Detection (checks available providers)
+2. Simple Generation (basic text generation)
+3. Specific Provider (force Vertex AI or Ollama)
+4. Fallback Logic (automatic failover)
+5. Cost Tracking (cumulative usage stats)
+6. Configuration Options (temperature, max_tokens)
+
+**To Run Tests:**
+```bash
+.venv\Scripts\python.exe tests\genai\10_test_model_gateway.py
+```
 
 ---
 
-## 4.6: Guardrails & Policy Chains
+## 4.6: Guardrails & Policy Chains (NEXT)
 
 ### Task 4.6.1: Input Validation
 **File:** `genai/guardrails.py`

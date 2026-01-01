@@ -13,14 +13,12 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime, timezone
 
 from google.cloud import bigquery
-from google.cloud import aiplatform
-import vertexai
-from vertexai.generative_models import GenerativeModel
 import numpy as np
 import json
 
 from utils.config import Settings
 from nlp.embeddings import EmbeddingGenerator
+from genai.gateway import ModelGateway, GenerationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +27,9 @@ logger = logging.getLogger(__name__)
 # Query Embedding
 # =============================================================================
 
-# Global embedding generator instance (singleton pattern)
+# Global singleton instances
 _EMBEDDING_GENERATOR: Optional[EmbeddingGenerator] = None
+_MODEL_GATEWAY: Optional[ModelGateway] = None
 
 
 def _get_embedding_generator() -> EmbeddingGenerator:
@@ -44,6 +43,19 @@ def _get_embedding_generator() -> EmbeddingGenerator:
         logger.info("[RAG] Initializing EmbeddingGenerator")
         _EMBEDDING_GENERATOR = EmbeddingGenerator()  # Uses default all-MiniLM-L6-v2
     return _EMBEDDING_GENERATOR
+
+
+def _get_model_gateway() -> ModelGateway:
+    """Get or create singleton ModelGateway instance.
+    
+    Returns:
+        Shared ModelGateway instance with all providers
+    """
+    global _MODEL_GATEWAY
+    if _MODEL_GATEWAY is None:
+        logger.info("[RAG] Initializing ModelGateway")
+        _MODEL_GATEWAY = ModelGateway()
+    return _MODEL_GATEWAY
 
 
 def embed_query(
@@ -340,21 +352,13 @@ def grade_documents(
     if not settings:
         settings = Settings.load()
     
-    # Initialize Vertex AI
-    try:
-        vertexai.init(project=settings.gcp_project_id, location=settings.gcp_region)
-        model = GenerativeModel("gemini-2.5-flash")  # Fast model for grading
-        logger.debug("[RAG] Initialized Vertex AI Gemini")
-    except Exception as e:
-        logger.error(f"[RAG] Failed to initialize Vertex AI: {e}")
-        # Fallback: Return all documents with neutral score
-        for doc in documents:
-            doc['relevance_score'] = 7.0
-            doc['relevance_explanation'] = "Grading unavailable (LLM init failed)"
-        return documents
+    # Get ModelGateway for LLM calls
+    gateway = _get_model_gateway()
     
     # Grade each document
-    graded_docs = []
+    graded_docs = []  # Docs that pass threshold
+    all_graded_docs = []  # ALL docs with scores (for statistics)
+    
     for i, doc in enumerate(documents, 1):
         try:
             # Construct grading prompt (very short for faster response)
@@ -371,20 +375,24 @@ Job: {title} at {company}
 Type: {classification}
 Desc: {desc}
 
-Respond ONLY with JSON: {{"score": 8.5, "explanation": "reason"}}"""
+CRITICAL: Explanation (brief reason) should under 1000 words.
+
+Respond ONLY with valid JSON: {{"score": 8.5, "explanation": "brief reason"}}"""
             
-            # Call Gemini
-            response = model.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 0.0,  # Zero temp for deterministic scoring
-                    "max_output_tokens": 65535,  # Large buffer for extended thinking models
-                    "candidate_count": 1, # How many generations to produce
-                }
+            # Call LLM via gateway (with automatic fallback)
+            config = GenerationConfig(
+                temperature=0.0,  # Deterministic scoring
+                max_tokens=8192,   # Short responses
             )
             
-            # Parse response (should be pure JSON now)
-            response_text = response.text.strip()
+            result = gateway.generate(
+                prompt,
+                model="auto",  # Auto-select best provider
+                config=config,
+                fallback=True,  # Enable fallback
+            )
+            
+            response_text = result.text.strip()
             
             # Sometimes Gemini adds prefixes even with response_mime_type - clean them
             if response_text.startswith("Here is"):
@@ -405,9 +413,25 @@ Respond ONLY with JSON: {{"score": 8.5, "explanation": "reason"}}"""
                 if len(parts) >= 2:
                     response_text = parts[1].strip()
             
-            grading = json.loads(response_text) if response_text else {"score": 5.0, "explanation": "Empty response"}
-            score = float(grading.get('score', 5.0))
-            explanation = grading.get('explanation', 'No explanation provided')
+            try:
+                grading = json.loads(response_text)
+                score = float(grading.get('score', 5.0))
+                explanation = grading.get('explanation', 'No explanation provided')
+            except json.JSONDecodeError as e:
+                logger.warning(f"[RAG] Failed to parse Gemini response for doc {i}: {e}")
+                logger.warning(f"[RAG] Full raw response: {response_text}")
+                # Fallback: Try to extract score with regex
+                import re
+                score_match = re.search(r'"score"\s*:\s*(\d+\.?\d*)', response_text)
+                if score_match:
+                    score = float(score_match.group(1))
+                    explanation = "Incomplete response (JSON parse error)"
+                    logger.info(f"[RAG] Extracted score {score} via regex fallback")
+                else:
+                    # Last resort: Assign neutral score
+                    score = 5.0
+                    explanation = f"Failed to parse response: {response_text[:100]}"
+                    logger.warning(f"[RAG] Using fallback score 5.0 for doc {i}")
             
             # Validate score range
             score = max(0.0, min(10.0, score))
@@ -416,7 +440,10 @@ Respond ONLY with JSON: {{"score": 8.5, "explanation": "reason"}}"""
             doc['relevance_score'] = score
             doc['relevance_explanation'] = explanation
             
-            # Filter by threshold
+            # Store in all_graded for average calculation (BEFORE filtering)
+            all_graded_docs.append(doc)
+            
+            # Filter by threshold for final results
             if score >= threshold:
                 graded_docs.append(doc)
                 logger.debug(
@@ -446,12 +473,18 @@ Respond ONLY with JSON: {{"score": 8.5, "explanation": "reason"}}"""
             if 6.0 >= threshold:
                 graded_docs.append(doc)
     
+    # Calculate statistics on ALL retrieved documents (before filtering)
+    avg_score_all = (
+        sum(doc['relevance_score'] for doc in all_graded_docs) / len(all_graded_docs)
+        if all_graded_docs else 0.0
+    )
+    
     # Re-rank by relevance score (descending)
     graded_docs.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
     
     logger.info(
         f"[RAG] Kept {len(graded_docs)}/{len(documents)} documents after grading "
-        f"(threshold={threshold})"
+        f"(threshold={threshold}, avg_score_all={avg_score_all:.1f}/10)"
     )
     
     if graded_docs:
@@ -459,6 +492,11 @@ Respond ONLY with JSON: {{"score": 8.5, "explanation": "reason"}}"""
         logger.info(
             f"[RAG] Top result: '{graded_docs[0].get('job_title', 'N/A')}' "
             f"(relevance={top_score:.1f}/10)"
+        )
+    else:
+        logger.warning(
+            f"[RAG] No documents passed threshold={threshold} "
+            f"(avg_score_all={avg_score_all:.1f}/10)"
         )
     
     return graded_docs
@@ -523,14 +561,8 @@ def generate_answer(
     
     logger.info(f"[RAG] Generating answer for query: {query[:100]}... using {len(context_jobs)} jobs")
     
-    # Initialize Vertex AI
-    try:
-        vertexai.init(project=settings.gcp_project_id, location=settings.gcp_region)
-        model = GenerativeModel("gemini-2.5-flash")
-        logger.debug("[RAG] Initialized Vertex AI Gemini Flash for generation")
-    except Exception as e:
-        logger.error(f"[RAG] Failed to initialize Vertex AI: {e}")
-        raise RuntimeError(f"Failed to initialize Gemini: {e}")
+    # Get ModelGateway for LLM calls
+    gateway = _get_model_gateway()
     
     # Limit context to top-K most relevant jobs
     top_jobs = context_jobs[:max_context_jobs]
@@ -554,35 +586,43 @@ Instructions:
 4. If asked about salaries, provide ranges and mention currency (SGD)
 5. If asked about requirements, summarize common skills/qualifications
 6. If the question cannot be fully answered with the provided jobs, acknowledge this
-7. Keep the answer concise but informative (2-4 paragraphs)
+7. **IMPORTANT: Keep your response under 1000 characters (approximately 3-4 paragraphs)**
 8. Use markdown formatting for better readability
 
 Your Answer:"""
     
-    # Call Gemini Flash
+    # Call LLM via gateway
     try:
         start_time = datetime.now(timezone.utc)
-        response = model.generate_content(
-            prompt,
-            generation_config={
-                "temperature": 0.3,  # Slightly creative but factual
-                "max_output_tokens": 65535,
-                "top_p": 0.9,
-                # Top-P decides if the model should take a "risk" with a weird word choice.
-                # Low Top-P (e.g., 0.1): The model is extremely safe. It will almost always give you the same answer every time you ask. Use this when you need facts or summaries.
-                # High Top-P (e.g., 0.95): The model is creative. It might use a metaphor or a funny word you didn't expect. Use this for storytelling, poetry, or marketing copy.
-
-                "top_k": 40, 
-                # Top-K prevents the model from saying something totally random. 
-                # Low Top-K (e.g., 5): The model is very "professional" and "stiff." It only uses the most common words. This is great for coding or math where there is usually only one right way to say something.
-                # High Top-K (e.g., 50+): The model is more "talkative." It has a larger vocabulary available. This is better for casual chatting or brainstorming.
-            }
+        
+        # Configuration: Limit output to 1024 tokens (~700-800 words)
+        # Note: Token limits help control response length and reduce costs
+        config = GenerationConfig(
+            temperature=0.3,  # Slightly creative but factual
+            max_tokens=8192,
+            top_p=0.9,
+            top_k=40,
         )
+        
+        result = gateway.generate(
+            prompt,
+            model="auto",  # Auto-select best provider
+            config=config,
+            fallback=True,
+        )
+        
         end_time = datetime.now(timezone.utc)
         latency_ms = int((end_time - start_time).total_seconds() * 1000)
         
-        answer_text = response.text.strip()
-        logger.info(f"[RAG] Generated answer ({len(answer_text)} chars, {latency_ms}ms)")
+        # Extract and truncate answer (safety limit: 4096 chars)
+        answer_text = result.text.strip()
+        if len(answer_text) > 4096:
+            logger.warning(f"[RAG] Truncating answer from {len(answer_text)} to 4096 chars")
+            answer_text = answer_text[:4093] + "..."
+        logger.info(
+            f"[RAG] Generated answer ({len(answer_text)} chars, {latency_ms}ms) "
+            f"using {result.provider}"
+        )
         
         # Extract sources (jobs cited in answer)
         sources = _extract_sources(top_jobs)
@@ -593,7 +633,8 @@ Your Answer:"""
             "metadata": {
                 "num_context_jobs": len(top_jobs),
                 "latency_ms": latency_ms,
-                "model": "gemini-2.5-flash",
+                "model": f"{result.provider}/{result.model}",
+                "cost_usd": result.cost,
                 "query": query,
             }
         }

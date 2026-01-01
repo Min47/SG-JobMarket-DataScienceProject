@@ -72,9 +72,9 @@ class AgentState(TypedDict):
 def should_rewrite(state: AgentState) -> Literal["rewrite", "generate"]:
     """Decide whether to rewrite query or proceed to generation.
     
-    Decision logic:
-    - If average relevance score < 6.0 AND rewrite_count < 2 → rewrite
-    - Otherwise → generate (either good results or max retries reached)
+    Decision logic (rewrite if ANY condition true AND retries left):
+    1. Average relevance score < 6.0 (poor quality)
+    2. Fewer than 3 jobs passed grading (insufficient results)
     
     Args:
         state: Current agent state with grading results
@@ -84,24 +84,38 @@ def should_rewrite(state: AgentState) -> Literal["rewrite", "generate"]:
     """
     avg_score = state.get("average_relevance_score", 0.0)
     rewrite_count = state.get("rewrite_count", 0)
+    graded_jobs = state.get("graded_jobs", [])
+    passed_count = len(graded_jobs)
     
-    # Check if we should rewrite
-    if avg_score < 6.0 and rewrite_count < 2:
+    # Check rewrite conditions
+    should_rewrite_query = (
+        (avg_score < 6.0 or passed_count < 3)
+        and rewrite_count < 2
+    )
+    
+    if should_rewrite_query:
+        reasons = []
+        if avg_score < 6.0:
+            reasons.append(f"low avg score ({avg_score:.2f}/10)")
+        if passed_count < 3:
+            reasons.append(f"only {passed_count} jobs passed")
+        
         logger.info(
-            f"[Agent Decision] Low relevance (avg={avg_score:.2f}), "
-            f"retry #{rewrite_count + 1} → REWRITE"
+            f"[Agent Decision] REWRITE needed: {', '.join(reasons)} "
+            f"(attempt {rewrite_count + 1}/2)"
         )
         return "rewrite"
     
     # Otherwise proceed to generation
-    if avg_score < 6.0:
+    if avg_score < 6.0 or passed_count < 3:
         logger.warning(
-            f"[Agent Decision] Low relevance (avg={avg_score:.2f}) but "
-            f"max retries reached ({rewrite_count}) → GENERATE anyway"
+            f"[Agent Decision] Suboptimal results (avg={avg_score:.2f}, "
+            f"passed={passed_count}) but max rewrites reached → GENERATE"
         )
     else:
         logger.info(
-            f"[Agent Decision] Good relevance (avg={avg_score:.2f}) → GENERATE"
+            f"[Agent Decision] Good results (avg={avg_score:.2f}, "
+            f"passed={passed_count}) → GENERATE"
         )
     
     return "generate"
@@ -222,19 +236,27 @@ def grade_node(state: AgentState) -> AgentState:
             threshold=5.0,  # Filter jobs below 5/10
         )
         
-        # Compute average score for decision making
-        if graded:
-            avg_score = sum(job.get("relevance_score", 0.0) for job in graded) / len(graded)
-        else:
-            avg_score = 0.0
+        # Compute average score on ALL retrieved jobs (for rewrite decision)
+        # This gives true quality signal - if most jobs scored low, we should rewrite
+        avg_score_all = (
+            sum(job.get("relevance_score", 0.0) for job in retrieved) / len(retrieved)
+            if retrieved else 0.0
+        )
+        
+        # Also track average of jobs that passed (for display)
+        avg_score_passed = (
+            sum(job.get("relevance_score", 0.0) for job in graded) / len(graded)
+            if graded else 0.0
+        )
         
         state["graded_jobs"] = graded
-        state["average_relevance_score"] = avg_score
+        state["average_relevance_score"] = avg_score_all  # Use ALL jobs for rewrite decision
         state["metadata"]["graded_count"] = len(graded)
+        state["metadata"]["avg_score_passed"] = avg_score_passed
         
         logger.info(
             f"[Agent Node: Grade] Graded {len(retrieved)} → {len(graded)} jobs passed, "
-            f"avg score: {avg_score:.2f}/10"
+            f"avg score: {avg_score_passed:.2f}/10 (passed), {avg_score_all:.2f}/10 (all)"
         )
         
         # Log score distribution
@@ -328,7 +350,7 @@ def rewrite_node(state: AgentState) -> AgentState:
     """Rewrite query using LLM to improve retrieval results.
     
     This node is triggered when grading scores are low (avg < 6.0).
-    It uses Gemini to reformulate the query for better results.
+    Uses ModelGateway to reformulate the query for better results.
     
     Query rewriting strategies:
     1. Add domain keywords ("software engineer" → "software engineer python sql")
@@ -354,8 +376,7 @@ def rewrite_node(state: AgentState) -> AgentState:
         - 'rewrite_count': Incremented counter
         - 'original_query': Preserved for reference
     """
-    import vertexai
-    from vertexai.generative_models import GenerativeModel
+    from genai.gateway import ModelGateway, GenerationConfig
     
     original_query = state["query"]
     rewrite_count = state["rewrite_count"]
@@ -366,10 +387,8 @@ def rewrite_node(state: AgentState) -> AgentState:
     )
     
     try:
-        # Initialize Vertex AI
-        settings = Settings.load()
-        vertexai.init(project=settings.gcp_project_id, location=settings.gcp_region)
-        model = GenerativeModel("gemini-2.5-flash")
+        # Get ModelGateway
+        gateway = ModelGateway()
         
         # Construct rewrite prompt
         prompt = f"""You are a job search query optimizer for Singapore job market.
@@ -391,17 +410,21 @@ Return ONLY the rewritten query, no explanation.
 
 Rewritten query:"""
         
-        # Generate rewrite
-        response = model.generate_content(
-            prompt,
-            generation_config={
-                "temperature": 0.7,  # Some creativity for alternatives
-                "max_output_tokens": 100,
-                "top_p": 0.9,
-            }
+        # Generate rewrite via gateway
+        config = GenerationConfig(
+            temperature=0.7,  # Some creativity for alternatives
+            max_tokens=1024,
+            top_p=0.9,
         )
         
-        rewritten_query = response.text.strip()
+        result = gateway.generate(
+            prompt,
+            model="auto",  # Auto-select best provider
+            config=config,
+            fallback=True,
+        )
+        
+        rewritten_query = result.text.strip()
         
         # Clean up common artifacts
         rewritten_query = rewritten_query.strip('"').strip("'").strip()
@@ -417,7 +440,7 @@ Rewritten query:"""
         
         logger.info(
             f"[Agent Node: Rewrite] Rewritten: '{rewritten_query}' "
-            f"({len(rewritten_query)} chars)"
+            f"({len(rewritten_query)} chars) using {result.provider}"
         )
         
     except Exception as e:
@@ -427,7 +450,6 @@ Rewritten query:"""
         state["metadata"]["rewrite_error"] = str(e)
     
     return state
-
 
 # =============================================================================
 # Agent Graph Construction
