@@ -63,7 +63,7 @@ class ChatRequest(BaseModel):
         min_length=3,
         max_length=1000,
         description="User's natural language query",
-        examples=["Find me accountants jobs with salary > $3000"]
+        examples=["Find me accountants jobs with salary"]
     )
     conversation_id: Optional[str] = Field(
         default=None,
@@ -308,7 +308,7 @@ async def chat_endpoint(request: Request, chat_request: ChatRequest) -> ChatResp
     Example:
         POST /v1/chat
         {
-            "message": "Find me data scientist jobs in fintech with salary > $10k",
+            "message": "Find me data scientist jobs in fintech with salary",
             "filters": {"location": "Central"}
         }
     """
