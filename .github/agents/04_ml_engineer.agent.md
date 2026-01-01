@@ -18,7 +18,8 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
 - ✅ RAG Pipeline: Retrieve → Grade → Generate (Task 4.1 COMPLETE)
 - ✅ LangGraph Agent: State graph, nodes, integration testing (Task 4.2 COMPLETE)
 - ✅ Tool Adapters for extended functionality (Task 4.3 COMPLETE)
-- 🔲 FastAPI service exposure (Task 4.4 NEXT)
+- ✅ FastAPI service exposure (Task 4.4 COMPLETE - Deployed to Cloud Run)
+- 🔲 Model Gateway for multi-provider LLM support (Task 4.5 NEXT)
 - 🔲 MCP Server for external AI assistants (Task 4.8)
 
 **Virtual Environment:**
@@ -675,15 +676,17 @@ uvicorn genai.api:app --reload --port 8000
 # - Health check: http://localhost:8000/health
 ```
 
-### Task 4.4.5: Deployment ✅ Need to validate
-- [ ] Create `Dockerfile.api` for containerization (multi-stage, ~5GB image)
-- [ ] Cloud Run deployment script (`deployment/API_01_Deploy_FastAPI.ps1`)
-- [ ] Cloud Build config (`cloudbuild.api.yaml`)
-- [ ] Environment variable configuration (GCP_PROJECT_ID, BQ_DATASET_ID, GCP_REGION)
-- [ ] Health check and readiness probes (FastAPI /health endpoint)
-- [ ] Auto-scaling configuration (0-10 instances, 2 vCPU, 4GB RAM)
+### Task 4.4.5: Deployment ✅ COMPLETE (Validated in Production)
+- [x] Created `Dockerfile.api` for containerization (optimized to ~1.8GB with CPU-only PyTorch)
+- [x] Cloud Run deployment script (`deployment/API_01_Deploy_FastAPI.ps1`)
+- [x] Cloud Build config (`cloudbuild.api.yaml`)
+- [x] Environment variable configuration (GCP_PROJECT_ID, BQ_DATASET_ID, GCP_REGION)
+- [x] Health check and readiness probes (FastAPI /health endpoint)
+- [x] Auto-scaling configuration (0-10 instances, 2 vCPU, 4GB RAM)
+- [x] IAM permissions configured (roles/aiplatform.user for Vertex AI)
+- [x] Service deployed and tested: https://genai-api-nwg3mjan5q-as.a.run.app
 
-**⚠️ Note:** Docker image is ~5GB due to PyTorch + CUDA dependencies. Cloud Build takes 15-20 minutes.
+**✅ Note:** Docker image optimized to ~1.8GB (down from 5GB) using CPU-only PyTorch. Cloud Build takes 8-12 minutes.
 
 ---
 
