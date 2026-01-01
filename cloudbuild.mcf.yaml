@@ -1,4 +1,5 @@
 steps:
+# Step 1: Build Docker image
 - name: 'gcr.io/cloud-builders/docker'
   args: [
     'build', 
@@ -6,5 +7,20 @@ steps:
     '-f', 'Dockerfile.scraper.mcf', 
     '.'
   ]
+
+# Step 2: Scan for vulnerabilities with Trivy
+- name: 'aquasec/trivy:latest'
+  args:
+    - 'image'
+    - '--severity=HIGH,CRITICAL'
+    - '--exit-code=1'
+    - '--ignore-unfixed'
+    - '--scanners=vuln'
+    - '--pkg-types=library'
+    - '--no-progress'
+    - '--timeout=10m'
+    - 'asia-southeast1-docker.pkg.dev/sg-job-market/scraper-mcf-docker/sg-job-scraper:mcf'
+  timeout: 600s
+
 images:
 - 'asia-southeast1-docker.pkg.dev/sg-job-market/scraper-mcf-docker/sg-job-scraper:mcf'

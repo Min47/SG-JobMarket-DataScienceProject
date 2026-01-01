@@ -16,7 +16,21 @@ steps:
       - '.'
     timeout: 900s  # 15 minutes (reduced from 30 due to smaller dependencies)
 
-  # Step 2: Push image to Artifact Registry
+  # Step 2: Scan for vulnerabilities with Trivy
+  - name: 'aquasec/trivy:latest'
+    args:
+      - 'image'
+      - '--severity=HIGH,CRITICAL'
+      - '--exit-code=1'  # Fail build if vulnerabilities found
+      - '--ignore-unfixed'  # Skip CVEs with no fix available
+      - '--scanners=vuln'  # Only scan for vulnerabilities (not misconfigs/secrets)
+      - '--pkg-types=library'  # Focus on Python packages, skip OS packages
+      - '--no-progress'
+      - '--timeout=10m'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE_NAME}:latest'
+    timeout: 600s  # 10 minutes for scanning
+
+  # Step 3: Push image to Artifact Registry (only if scan passed)
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
