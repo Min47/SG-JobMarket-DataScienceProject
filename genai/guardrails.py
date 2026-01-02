@@ -32,6 +32,13 @@ from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
+# Import observability for metrics
+try:
+    from genai.observability import GUARDRAIL_BLOCKS
+    OBSERVABILITY_AVAILABLE = True
+except ImportError:
+    OBSERVABILITY_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -347,6 +354,10 @@ class InputGuardrails:
         has_pii, pii_violations = self.pii_detector.detect(query)
         if has_pii:
             all_violations.extend(pii_violations)
+            logger.warning(f"[Guardrails] PII detected in query: {pii_violations}")
+            # Track PII block metric
+            if OBSERVABILITY_AVAILABLE:
+                GUARDRAIL_BLOCKS.labels(guard_type="pii").inc()
             return ValidationResult(
                 passed=False,
                 severity=ValidationSeverity.BLOCKED,
@@ -360,6 +371,9 @@ class InputGuardrails:
         if is_prompt_injection:
             all_violations.extend(prompt_violations)
             logger.warning(f"[Guardrails] Prompt injection attempt detected: {prompt_violations}")
+            # Track prompt injection block metric
+            if OBSERVABILITY_AVAILABLE:
+                GUARDRAIL_BLOCKS.labels(guard_type="injection").inc()
             return ValidationResult(
                 passed=False,
                 severity=ValidationSeverity.BLOCKED,
@@ -372,6 +386,9 @@ class InputGuardrails:
         if is_sql_injection:
             all_violations.extend(sql_violations)
             logger.warning(f"[Guardrails] SQL injection attempt detected: {sql_violations}")
+            # Track SQL injection block metric
+            if OBSERVABILITY_AVAILABLE:
+                GUARDRAIL_BLOCKS.labels(guard_type="injection").inc()
             return ValidationResult(
                 passed=False,
                 severity=ValidationSeverity.BLOCKED,
@@ -456,6 +473,9 @@ class OutputGuardrails:
             
             if violations:
                 logger.warning(f"[Guardrails] Hallucination detected: {violations}")
+                # Track hallucination detection metric
+                if OBSERVABILITY_AVAILABLE:
+                    GUARDRAIL_BLOCKS.labels(guard_type="hallucination").inc()
                 return ValidationResult(
                     passed=False,
                     severity=ValidationSeverity.WARNING,

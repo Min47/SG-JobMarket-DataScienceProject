@@ -49,7 +49,53 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
   - Reasons: Lightweight, no dependencies, fast (<5ms), full control, auditable
   - Enterprise solutions (AWS Bedrock Guardrails, Azure Content Safety) also use rule-based systems
   
-- 🔲 Task 4.7: Observability (tracing, metrics, logging) - NEXT
+  **Security Hardening:**
+  - ✅ Trivy vulnerability scanning added to all 4 cloudbuild pipelines
+  - ✅ Scans Python packages for HIGH/CRITICAL CVEs before deployment
+  - ✅ Ignores unfixed OS vulnerabilities (focus on application layer)
+  - ✅ Build fails automatically if fixable vulnerabilities detected
+  
+- ✅ Task 4.7: Observability (tracing, metrics, logging) - COMPLETE
+  
+  **Implementation Details:**
+  - ✅ OpenTelemetry integration (tracing + Cloud Trace export)
+  - ✅ Prometheus metrics (21 metrics total)
+  - ✅ RAG pipeline instrumentation (retrieve, grade, generate)
+  - ✅ Agent step tracking (retrieve, grade, generate, rewrite counters)
+  - ✅ Gateway LLM call tracking (Vertex AI + Ollama)
+  - ✅ FastAPI integration (/metrics endpoint, request middleware)
+  - ✅ Guardrail metrics (PII, injection, hallucination blocks)
+  - ✅ Test suite (7 tests, all passing) → tests/genai/12_test_observability.py
+  
+  **21 Prometheus Metrics:**
+  | Category | Metrics | Description |
+  |----------|---------|-------------|
+  | **Request** | REQUEST_COUNT, REQUEST_LATENCY, ACTIVE_REQUESTS | Endpoint tracking |
+  | **LLM** | LLM_CALL_COUNT, LLM_TOKEN_COUNT, LLM_COST, LLM_LATENCY | Provider usage |
+  | **RAG** | RETRIEVAL_LATENCY, RETRIEVAL_COUNT, GRADING_LATENCY, AVERAGE_RELEVANCE_SCORE, REWRITE_COUNT | Pipeline quality |
+  | **Agent** | AGENT_EXECUTION_LATENCY, AGENT_STEP_COUNT | Workflow performance |
+  | **Guardrails** | GUARDRAIL_BLOCKS | Security events |
+  | **System** | API_INFO | Version metadata |
+  
+  **Tracing Instrumentation:**
+  - `@trace_function` decorators on all RAG functions
+  - Span attributes: query_length, result_count, duration_ms, relevance_scores
+  - Error tracking with exception details
+  - Context propagation across async boundaries
+  
+  **Cloud Integration:**
+  - Cloud Trace exporter for distributed tracing
+  - Cloud Monitoring exporter for metrics aggregation
+  - Auto-instrumentation for FastAPI endpoints
+  - Request ID tracking with X-Request-ID header
+  
+  **Deployment:**
+  - Run local tests: `python tests/genai/12_test_observability.py`
+  - Deploy: `.\deployment\API_01_Deploy_FastAPI.ps1`
+  - View metrics: `curl http://localhost:8000/metrics`
+  - Cloud Trace: https://console.cloud.google.com/traces
+  - Cloud Monitoring: https://console.cloud.google.com/monitoring
+  
 - 🔲 Task 4.8: MCP Server (external AI assistant integration)
 
 **Virtual Environment:**

@@ -83,7 +83,9 @@ $roles = @(
     "roles/iam.serviceAccountUser",
     "roles/artifactregistry.writer",
     "roles/logging.logWriter",
-    "roles/aiplatform.user"
+    "roles/aiplatform.user",
+    "roles/cloudtrace.agent",
+    "roles/monitoring.metricWriter"
 )
 
 foreach ($role in $roles) {

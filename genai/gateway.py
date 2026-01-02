@@ -57,6 +57,16 @@ except ImportError:
 
 from utils.config import Settings
 
+# Import observability
+try:
+    from genai.observability import track_llm_call
+    OBSERVABILITY_AVAILABLE = True
+except ImportError:
+    OBSERVABILITY_AVAILABLE = False
+    def track_llm_call(*args, **kwargs):  # type: ignore
+        """Fallback no-op if observability not available."""
+        pass
+
 logger = logging.getLogger(__name__)
 
 
@@ -516,6 +526,18 @@ class VertexAIProvider(BaseProvider):
             # Calculate cost
             cost = self.estimate_cost(tokens_input, tokens_output)
             
+            # Track LLM metrics
+            if OBSERVABILITY_AVAILABLE:
+                track_llm_call(
+                    provider=self.name,
+                    model=self.default_model,
+                    operation="generate",
+                    duration=latency_ms / 1000,
+                    input_tokens=tokens_input,
+                    output_tokens=tokens_output,
+                    cost_usd=cost,
+                )
+            
             logger.info(
                 f"[VertexAIProvider] Generated {len(text)} chars, "
                 f"~{tokens_output} tokens, ${cost:.6f}, {latency_ms:.0f}ms"
@@ -681,6 +703,18 @@ class OllamaProvider(BaseProvider):
             
             # Cost is $0 (local)
             cost = 0.0
+            
+            # Track LLM metrics
+            if OBSERVABILITY_AVAILABLE:
+                track_llm_call(
+                    provider=self.name,
+                    model=data.get("model", self.default_model),
+                    operation="generate",
+                    duration=latency_ms / 1000,
+                    input_tokens=tokens_input,
+                    output_tokens=tokens_output,
+                    cost_usd=cost,
+                )
             
             logger.info(
                 f"[OllamaProvider] Generated {len(text)} chars, "

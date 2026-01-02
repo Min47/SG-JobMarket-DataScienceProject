@@ -49,6 +49,17 @@ from genai.tools import search_jobs, get_job_details, aggregate_stats, find_simi
 # Import guardrails
 from genai.guardrails import InputGuardrails, OutputGuardrails
 
+# Import observability
+from genai.observability import (
+    init_observability,
+    instrument_fastapi,
+    track_request_metrics,
+    track_llm_call,
+    REQUEST_COUNT,
+    GUARDRAIL_BLOCKS,
+)
+from prometheus_client import generate_latest
+
 logger = configure_logging(service_name="genai-api")
 
 # =============================================================================
@@ -205,6 +216,14 @@ app.add_middleware(
 # Load settings
 settings = Settings.load()
 
+# Initialize observability (tracing + metrics)
+init_observability(
+    service_name="genai-api",
+    gcp_project_id=settings.gcp_project_id,
+    enable_cloud_trace=True,  # Export to Cloud Trace
+    enable_cloud_monitoring=True,  # Export to Cloud Monitoring
+)
+
 # Initialize agent (lazy loading)
 _agent: Optional[JobMarketAgent] = None
 
@@ -222,6 +241,9 @@ def get_agent() -> JobMarketAgent:
 input_guards = InputGuardrails()
 output_guards = OutputGuardrails()
 logger.info("[API] Guardrails initialized (PII, injection, hallucination detection)")
+
+# Instrument FastAPI with OpenTelemetry (automatic tracing)
+instrument_fastapi(app)
 
 
 # =============================================================================
@@ -314,89 +336,92 @@ async def chat_endpoint(request: Request, chat_request: ChatRequest) -> ChatResp
     """
     logger.info(f"[Chat Endpoint] Query: {chat_request.message[:100]}...")
     
-    try:
-        # === GUARDRAILS: Validate input ===
-        validation_result = input_guards.validate(chat_request.message)
-        if not validation_result.passed:
-            logger.warning(
-                f"[Chat Endpoint] Input blocked by guardrails: {validation_result.reason}",
-                extra={"violations": validation_result.violations}
-            )
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": validation_result.reason,
-                    "violations": validation_result.violations,
-                    "severity": validation_result.severity.value,
-                }
-            )
-        
-        # Get or create conversation ID
-        conversation_id = chat_request.conversation_id or str(uuid.uuid4())
-        
-        # Get agent instance
-        agent = get_agent()
-        
-        # Run agent with query
-        result = agent.run(
-            query=chat_request.message,
-            filters=chat_request.filters or {}
-        )
-        
-        # Extract response components
-        # Note: agent.run() returns final_state["final_answer"] directly,
-        # which already has "answer" and "sources" at top level
-        answer = result.get("answer", "No answer generated")
-        sources = result.get("sources", [])
-        
-        # === GUARDRAILS: Validate output ===
-        # Get context jobs for hallucination check
-        context_jobs = result.get("graded_jobs", [])
-        output_validation = output_guards.validate(
-            response={"answer": answer, "sources": sources},
-            context_jobs=context_jobs
-        )
-        
-        if not output_validation.passed:
-            logger.warning(
-                f"[Chat Endpoint] Output validation warning: {output_validation.reason}",
-                extra={"violations": output_validation.violations}
-            )
-            # For output issues, log warning but don't block (WARNING severity)
-            # unless it's BLOCKED severity
-            if output_validation.severity.value == "blocked":
-                raise HTTPException(
-                    status_code=500,
-                    detail="Response failed safety checks. Please try a different query."
+    # Track request metrics
+    with track_request_metrics("/v1/chat", method="POST"):
+        try:
+            # === GUARDRAILS: Validate input ===
+            validation_result = input_guards.validate(chat_request.message)
+            if not validation_result.passed:
+                # Metrics already tracked in guardrails.py
+                logger.warning(
+                    f"[Chat Endpoint] Input blocked by guardrails: {validation_result.reason}",
+                    extra={"violations": validation_result.violations}
                 )
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": validation_result.reason,
+                        "violations": validation_result.violations,
+                        "severity": validation_result.severity.value,
+                    }
+                )
+            
+            # Get or create conversation ID
+            conversation_id = chat_request.conversation_id or str(uuid.uuid4())
+            
+            # Get agent instance
+            agent = get_agent()
+            
+            # Run agent with query
+            result = agent.run(
+                query=chat_request.message,
+                filters=chat_request.filters or {}
+            )
+            
+            # Extract response components
+            # Note: agent.run() returns final_state["final_answer"] directly,
+            # which already has "answer" and "sources" at top level
+            answer = result.get("answer", "No answer generated")
+            sources = result.get("sources", [])
+            
+            # === GUARDRAILS: Validate output ===
+            # Get context jobs for hallucination check
+            context_jobs = result.get("graded_jobs", [])
+            output_validation = output_guards.validate(
+                response={"answer": answer, "sources": sources},
+                context_jobs=context_jobs
+            )
+            
+            if not output_validation.passed:
+                logger.warning(
+                    f"[Chat Endpoint] Output validation warning: {output_validation.reason}",
+                    extra={"violations": output_validation.violations}
+                )
+                # For output issues, log warning but don't block (WARNING severity)
+                # unless it's BLOCKED severity
+                if output_validation.severity.value == "blocked":
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Response failed safety checks. Please try a different query."
+                    )
+            
+            # Build metadata (extract from result["metadata"] which contains execution stats)
+            metadata = {
+                "conversation_id": conversation_id,
+                "retrieved_count": result.get("metadata", {}).get("retrieved_count", 0),
+                "graded_count": result.get("metadata", {}).get("graded_count", 0),
+                "average_relevance_score": result.get("metadata", {}).get("average_relevance_score", 0.0),
+                "rewrite_count": result.get("metadata", {}).get("rewrite_count", 0),
+                "original_query": result.get("metadata", {}).get("original_query", chat_request.message),
+                "final_query": result.get("metadata", {}).get("final_query", chat_request.message),
+            }
+            
+            return ChatResponse(
+                answer=answer,
+                sources=sources,
+                conversation_id=conversation_id,
+                metadata=metadata
+            )
         
-        # Build metadata (extract from result["metadata"] which contains execution stats)
-        metadata = {
-            "conversation_id": conversation_id,
-            "retrieved_count": result.get("metadata", {}).get("retrieved_count", 0),
-            "graded_count": result.get("metadata", {}).get("graded_count", 0),
-            "average_relevance_score": result.get("metadata", {}).get("average_relevance_score", 0.0),
-            "rewrite_count": result.get("metadata", {}).get("rewrite_count", 0),
-            "original_query": result.get("metadata", {}).get("original_query", chat_request.message),
-            "final_query": result.get("metadata", {}).get("final_query", chat_request.message),
-        }
-        
-        return ChatResponse(
-            answer=answer,
-            sources=sources,
-            conversation_id=conversation_id,
-            metadata=metadata
-        )
-        
-    except HTTPException:
-        # Let HTTPExceptions propagate (guardrail blocks, etc.)
-        raise
-    except Exception as e:
-        logger.error(f"[Chat Endpoint] Error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Agent execution failed: {str(e)}"
-        )
+        except HTTPException:
+            # Let HTTPExceptions propagate (guardrail blocks, rate limits, etc.)
+            raise
+        except Exception as e:
+            logger.error(f"[Chat Endpoint] Unexpected error: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Agent execution failed: {str(e)}"
+            )
 
 
 # =============================================================================
@@ -431,48 +456,50 @@ async def search_endpoint(request: Request, search_request: SearchRequest) -> Se
     logger.info(f"[Search Endpoint] Query: {search_request.query[:100]}...")
     start_time = time.time()
     
-    try:
-        # === GUARDRAILS: Validate input ===
-        validation_result = input_guards.validate(search_request.query)
-        if not validation_result.passed:
-            logger.warning(
-                f"[Search Endpoint] Input blocked: {validation_result.reason}",
-                extra={"violations": validation_result.violations}
+    # Track request metrics
+    with track_request_metrics("/v1/search", method="POST"):
+        try:
+            # === GUARDRAILS: Validate input ===
+            validation_result = input_guards.validate(search_request.query)
+            if not validation_result.passed:
+                logger.warning(
+                    f"[Search Endpoint] Input blocked: {validation_result.reason}",
+                    extra={"violations": validation_result.violations}
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": validation_result.reason,
+                        "violations": validation_result.violations,
+                    }
+                )
+            
+            # Call retrieve_jobs directly (bypasses agent)
+            jobs = retrieve_jobs(
+                query=search_request.query,
+                top_k=search_request.top_k,
+                filters=search_request.filters or {},
+                settings=settings
             )
+            
+            processing_time_ms = int((time.time() - start_time) * 1000)
+            
+            return SearchResponse(
+                jobs=jobs,
+                count=len(jobs),
+                query=search_request.query,
+                processing_time_ms=processing_time_ms
+            )
+        
+        except HTTPException:
+            # Let HTTPExceptions propagate (guardrail blocks, etc.)
+            raise
+        except Exception as e:
+            logger.error(f"[Search Endpoint] Error: {e}", exc_info=True)
             raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": validation_result.reason,
-                    "violations": validation_result.violations,
-                }
+                status_code=500,
+                detail=f"Search failed: {str(e)}"
             )
-        
-        # Call retrieve_jobs directly (bypasses agent)
-        jobs = retrieve_jobs(
-            query=search_request.query,
-            top_k=search_request.top_k,
-            filters=search_request.filters or {},
-            settings=settings
-        )
-        
-        processing_time_ms = int((time.time() - start_time) * 1000)
-        
-        return SearchResponse(
-            jobs=jobs,
-            count=len(jobs),
-            query=search_request.query,
-            processing_time_ms=processing_time_ms
-        )
-        
-    except HTTPException:
-        # Let HTTPExceptions propagate (guardrail blocks, etc.)
-        raise
-    except Exception as e:
-        logger.error(f"[Search Endpoint] Error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Search failed: {str(e)}"
-        )
 
 
 # =============================================================================
@@ -499,27 +526,29 @@ async def get_job_endpoint(
     """
     logger.info(f"[Get Job Endpoint] job_id={job_id}, source={source}")
     
-    try:
-        # Call tool directly
-        result_str = get_job_details.invoke({"job_id": job_id, "source": source})
-        result = json.loads(result_str)
+    # Track request metrics
+    with track_request_metrics("/v1/jobs/{job_id}", method="GET"):
+        try:
+            # Call tool directly
+            result_str = get_job_details.invoke({"job_id": job_id, "source": source})
+            result = json.loads(result_str)
+            
+            if not result.get("success"):
+                raise HTTPException(
+                    status_code=404,
+                    detail=result.get("error", f"Job {job_id} not found")
+                )
+            
+            return result
         
-        if not result.get("success"):
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"[Get Job Endpoint] Error: {e}", exc_info=True)
             raise HTTPException(
-                status_code=404,
-                detail=result.get("error", f"Job {job_id} not found")
+                status_code=500,
+                detail=f"Failed to fetch job: {str(e)}"
             )
-        
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[Get Job Endpoint] Error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch job: {str(e)}"
-        )
 
 
 # =============================================================================
@@ -548,32 +577,34 @@ async def similar_jobs_endpoint(
     """
     logger.info(f"[Similar Jobs Endpoint] job_id={job_id}, source={source}, top_k={top_k}")
     
-    try:
-        # Call tool directly
-        result_str = find_similar_jobs.invoke({
-            "job_id": job_id,
-            "source": source,
-            "top_k": top_k,
-            "min_similarity": min_similarity
-        })
-        result = json.loads(result_str)
+    # Track request metrics
+    with track_request_metrics("/v1/jobs/{job_id}/similar", method="GET"):
+        try:
+            # Call tool directly
+            result_str = find_similar_jobs.invoke({
+                "job_id": job_id,
+                "source": source,
+                "top_k": top_k,
+                "min_similarity": min_similarity
+            })
+            result = json.loads(result_str)
+            
+            if not result.get("success"):
+                raise HTTPException(
+                    status_code=404,
+                    detail=result.get("error", f"Reference job {job_id} not found")
+                )
+            
+            return result
         
-        if not result.get("success"):
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"[Similar Jobs Endpoint] Error: {e}", exc_info=True)
             raise HTTPException(
-                status_code=404,
-                detail=result.get("error", f"Reference job {job_id} not found")
+                status_code=500,
+                detail=f"Similarity search failed: {str(e)}"
             )
-        
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[Similar Jobs Endpoint] Error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Similarity search failed: {str(e)}"
-        )
 
 
 # =============================================================================
@@ -601,39 +632,41 @@ async def stats_endpoint(request: Request, stats_request: StatsRequest) -> Stats
     """
     logger.info(f"[Stats Endpoint] group_by={stats_request.group_by}")
     
-    try:
-        # Call tool directly
-        tool_input = {
-            "group_by": stats_request.group_by,
-            "limit": stats_request.limit
-        }
-        # Add filters if provided
-        if stats_request.filters:
-            tool_input.update(stats_request.filters)
-        
-        result_str = aggregate_stats.invoke(tool_input)
-        result = json.loads(result_str)
-        
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Statistics computation failed")
+    # Track request metrics
+    with track_request_metrics("/v1/stats", method="POST"):
+        try:
+            # Call tool directly
+            tool_input = {
+                "group_by": stats_request.group_by,
+                "limit": stats_request.limit
+            }
+            # Add filters if provided
+            if stats_request.filters:
+                tool_input.update(stats_request.filters)
+            
+            result_str = aggregate_stats.invoke(tool_input)
+            result = json.loads(result_str)
+            
+            if not result.get("success"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=result.get("error", "Statistics computation failed")
+                )
+            
+            return StatsResponse(
+                stats=result.get("stats", []),
+                summary=result.get("summary", {}),
+                group_by=stats_request.group_by
             )
         
-        return StatsResponse(
-            stats=result.get("stats", []),
-            summary=result.get("summary", {}),
-            group_by=stats_request.group_by
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[Stats Endpoint] Error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Statistics computation failed: {str(e)}"
-        )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"[Stats Endpoint] Error: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Statistics computation failed: {str(e)}"
+            )
 
 
 # =============================================================================
@@ -658,51 +691,53 @@ async def health_endpoint(request: Request) -> HealthResponse:
     Example:
         GET /health
     """
-    services = {}
-    overall_status = "healthy"
-    
-    # Check BigQuery
-    try:
-        from google.cloud import bigquery
-        client = bigquery.Client(project=settings.gcp_project_id)
-        # Simple query to check connectivity
-        query = f"SELECT COUNT(*) FROM `{settings.gcp_project_id}.{settings.bigquery_dataset_id}.cleaned_jobs` LIMIT 1"
-        client.query(query).result()
-        services["bigquery"] = "ok"
-    except Exception as e:
-        services["bigquery"] = f"error: {str(e)[:50]}"
-        overall_status = "degraded"
-    
-    # Check Vertex AI (just check if initialized)
-    try:
-        from google.cloud import aiplatform
-        aiplatform.init(project=settings.gcp_project_id, location=settings.gcp_region)
-        services["vertex_ai"] = "ok"
-    except Exception as e:
-        services["vertex_ai"] = f"error: {str(e)[:50]}"
-        overall_status = "degraded"
-    
-    # Check embedding model
-    try:
-        from nlp.embeddings import EmbeddingGenerator
-        generator = EmbeddingGenerator()
-        # Test embedding generation
-        test_embedding = generator.embed_texts(["test"], show_progress=False)
-        if test_embedding.size > 0:
-            services["embeddings"] = "ok"
-        else:
-            services["embeddings"] = "error: empty embedding"
+    # Track request metrics
+    with track_request_metrics("/health", method="GET"):
+        services = {}
+        overall_status = "healthy"
+        
+        # Check BigQuery
+        try:
+            from google.cloud import bigquery
+            client = bigquery.Client(project=settings.gcp_project_id)
+            # Simple query to check connectivity
+            query = f"SELECT COUNT(*) FROM `{settings.gcp_project_id}.{settings.bigquery_dataset_id}.cleaned_jobs` LIMIT 1"
+            client.query(query).result()
+            services["bigquery"] = "ok"
+        except Exception as e:
+            services["bigquery"] = f"error: {str(e)[:50]}"
             overall_status = "degraded"
-    except Exception as e:
-        services["embeddings"] = f"error: {str(e)[:50]}"
-        overall_status = "degraded"
+        
+        # Check Vertex AI (just check if initialized)
+        try:
+            from google.cloud import aiplatform
+            aiplatform.init(project=settings.gcp_project_id, location=settings.gcp_region)
+            services["vertex_ai"] = "ok"
+        except Exception as e:
+            services["vertex_ai"] = f"error: {str(e)[:50]}"
+            overall_status = "degraded"
+        
+        # Check embedding model
+        try:
+            from nlp.embeddings import EmbeddingGenerator
+            generator = EmbeddingGenerator()
+            # Test embedding generation
+            test_embedding = generator.embed_texts(["test"], show_progress=False)
+            if test_embedding.size > 0:
+                services["embeddings"] = "ok"
+            else:
+                services["embeddings"] = "error: empty embedding"
+                overall_status = "degraded"
+        except Exception as e:
+            services["embeddings"] = f"error: {str(e)[:50]}"
+            overall_status = "degraded"
     
-    return HealthResponse(
-        status=overall_status,
-        version="1.0.0",
-        timestamp=datetime.now(timezone.utc).isoformat(),
-        services=services
-    )
+        return HealthResponse(
+            status=overall_status,
+            version="1.0.0",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            services=services
+        )
 
 
 # =============================================================================
@@ -726,6 +761,23 @@ async def root():
             "statistics": "POST /v1/stats",
         }
     }
+
+
+# =============================================================================
+# Metrics Endpoint (Prometheus)
+# =============================================================================
+
+@app.get(
+    "/metrics",
+    tags=["Monitoring"],
+    summary="Prometheus metrics",
+    description="Exposes metrics in Prometheus format for monitoring",
+    include_in_schema=False,  # Hide from Swagger UI
+)
+def metrics():
+    """Export Prometheus metrics."""
+    from fastapi.responses import Response
+    return Response(content=generate_latest(), media_type="text/plain")
 
 
 # =============================================================================

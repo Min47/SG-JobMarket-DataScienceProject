@@ -9,6 +9,7 @@ This module implements Retrieval-Augmented Generation using:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timezone
 
@@ -19,6 +20,13 @@ import json
 from utils.config import Settings
 from nlp.embeddings import EmbeddingGenerator
 from genai.gateway import ModelGateway, GenerationConfig
+from genai.observability import (
+    trace_function,
+    trace_span,
+    add_span_attributes,
+    track_retrieval,
+    track_grading,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +136,7 @@ def embed_query(
 # Vector Search & Retrieval
 # =============================================================================
 
+@trace_function("retrieve_jobs", {"operation": "vector_search"})
 def retrieve_jobs(
     query: str,
     top_k: int = 10,
@@ -268,12 +277,31 @@ def retrieve_jobs(
     logger.debug(f"[RAG] Full SQL query:\n{sql}")
     # print(f"Full SQL query:\n{sql}")
     
-    # Execute query
+    # Execute query with metrics tracking
+    start_time = time.time()
+    
     try:
         query_job = client.query(sql, project=settings.gcp_project_id)
         results = list(query_job.result())
         
-        logger.info(f"[RAG] Retrieved {len(results)} jobs from BigQuery")
+        duration = time.time() - start_time
+        
+        # Track retrieval metrics
+        if len(results) == 0:
+            track_retrieval(duration, 0, status="empty")
+        else:
+            track_retrieval(duration, len(results), status="success")
+        
+        # Add span attributes for tracing
+        add_span_attributes({
+            "query_length": len(query),
+            "top_k": top_k,
+            "result_count": len(results),
+            "duration_ms": int(duration * 1000),
+            "has_filters": filters is not None,
+        })
+        
+        logger.info(f"[RAG] Retrieved {len(results)} jobs from BigQuery in {duration:.2f}s")
         
         # Convert to dictionaries
         jobs = []
@@ -305,11 +333,14 @@ def retrieve_jobs(
         return jobs
     
     except Exception as e:
+        duration = time.time() - start_time
+        track_retrieval(duration, 0, status="failure")
         logger.error(f"[RAG] BigQuery vector search failed: {e}")
         logger.exception(e)
         return []
 
 
+@trace_function("grade_documents", {"operation": "relevance_grading"})
 def grade_documents(
     query: str,
     documents: List[Dict[str, Any]],
@@ -358,6 +389,9 @@ def grade_documents(
     # Grade each document
     graded_docs = []  # Docs that pass threshold
     all_graded_docs = []  # ALL docs with scores (for statistics)
+
+    # Execute query with metrics tracking
+    start_time = time.time()
     
     for i, doc in enumerate(documents, 1):
         try:
@@ -479,12 +513,25 @@ Respond ONLY with valid JSON: {{"score": 8.5, "explanation": "brief reason"}}"""
         if all_graded_docs else 0.0
     )
     
+    # Track grading metrics
+    grading_duration = time.time() - start_time
+    track_grading(grading_duration, avg_score_all)
+    
+    # Add span attributes
+    add_span_attributes({
+        "document_count": len(documents),
+        "passed_threshold": len(graded_docs),
+        "average_score": round(avg_score_all, 2),
+        "threshold": threshold,
+        "duration_ms": int(grading_duration * 1000),
+    })
+    
     # Re-rank by relevance score (descending)
     graded_docs.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
     
     logger.info(
         f"[RAG] Kept {len(graded_docs)}/{len(documents)} documents after grading "
-        f"(threshold={threshold}, avg_score_all={avg_score_all:.1f}/10)"
+        f"(threshold={threshold}, avg_score_all={avg_score_all:.1f}/10, time={grading_duration:.1f}s)"
     )
     
     if graded_docs:
@@ -506,6 +553,7 @@ Respond ONLY with valid JSON: {{"score": 8.5, "explanation": "brief reason"}}"""
 # Answer Generation
 # =============================================================================
 
+@trace_function("generate_answer", {"operation": "answer_generation"})
 def generate_answer(
     query: str,
     context_jobs: List[Dict[str, Any]],
@@ -623,6 +671,14 @@ Your Answer:"""
             f"[RAG] Generated answer ({len(answer_text)} chars, {latency_ms}ms) "
             f"using {result.provider}"
         )
+        
+        # Add span attributes for tracing
+        add_span_attributes({
+            "context_job_count": len(top_jobs),
+            "answer_length": len(answer_text),
+            "duration_ms": latency_ms,
+            "model": f"{result.provider}/{result.model}",
+        })
         
         # Extract sources (jobs cited in answer)
         sources = _extract_sources(top_jobs)

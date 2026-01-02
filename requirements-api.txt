@@ -45,7 +45,10 @@ requests==2.32.5
 beautifulsoup4==4.14.3
 langdetect==1.0.9
 
-# Monitoring (optional, for production observability)
-# opentelemetry-api==1.22.0
-# opentelemetry-sdk==1.22.0
-# prometheus-client==0.21.0
+# Observability & Monitoring
+opentelemetry-api==1.39.1
+opentelemetry-sdk==1.39.1
+opentelemetry-instrumentation-fastapi==0.60b1
+opentelemetry-exporter-gcp-trace==1.11.0
+opentelemetry-exporter-gcp-monitoring==1.11.0a0
+prometheus-client==0.23.1

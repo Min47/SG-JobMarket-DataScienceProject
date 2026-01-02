@@ -22,6 +22,13 @@ from langgraph.graph import StateGraph, END, START
 from langgraph.graph.message import add_messages
 
 from utils.config import Settings
+from genai.observability import (
+    trace_function,
+    add_span_attributes,
+    track_agent_execution,
+    AGENT_STEP_COUNT,
+    REWRITE_COUNT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +158,9 @@ def retrieve_node(state: AgentState) -> AgentState:
     """
     from genai.rag import retrieve_jobs
     
+    # Track agent step
+    AGENT_STEP_COUNT.labels(step_name="retrieve").inc()
+    
     query = state["query"]
     filters = state["metadata"].get("filters", {})
     
@@ -215,6 +225,9 @@ def grade_node(state: AgentState) -> AgentState:
         Updated state with 'graded_jobs' and 'average_relevance_score'
     """
     from genai.rag import grade_documents
+    
+    # Track agent step
+    AGENT_STEP_COUNT.labels(step_name="grade").inc()
     
     query = state["query"]
     retrieved = state["retrieved_jobs"]
@@ -311,6 +324,9 @@ def generate_node(state: AgentState) -> AgentState:
     """
     from genai.rag import generate_answer
     
+    # Track agent step
+    AGENT_STEP_COUNT.labels(step_name="generate").inc()
+    
     query = state["query"]
     graded = state["graded_jobs"]
     
@@ -377,6 +393,10 @@ def rewrite_node(state: AgentState) -> AgentState:
         - 'original_query': Preserved for reference
     """
     from genai.gateway import ModelGateway, GenerationConfig
+    
+    # Track agent step and rewrite counter
+    AGENT_STEP_COUNT.labels(step_name="rewrite").inc()
+    REWRITE_COUNT.labels(reason="low_relevance_score").inc()
     
     original_query = state["query"]
     rewrite_count = state["rewrite_count"]
