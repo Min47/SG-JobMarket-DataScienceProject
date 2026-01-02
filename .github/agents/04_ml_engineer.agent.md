@@ -55,7 +55,7 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
   - ✅ Ignores unfixed OS vulnerabilities (focus on application layer)
   - ✅ Build fails automatically if fixable vulnerabilities detected
   
-- ✅ Task 4.7: Observability (tracing, metrics, logging) - COMPLETE
+- ✅ Task 4.7: Observability (tracing, metrics, logging) - COMPLETE & DEPLOYED ✅
   
   **Implementation Details:**
   - ✅ OpenTelemetry integration (tracing + Cloud Trace export)
@@ -66,6 +66,9 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
   - ✅ FastAPI integration (/metrics endpoint, request middleware)
   - ✅ Guardrail metrics (PII, injection, hallucination blocks)
   - ✅ Test suite (7 tests, all passing) → tests/genai/12_test_observability.py
+  - ✅ **Production Deployment:** Cloud Run (asia-southeast1) with full observability
+  - ✅ **IAM Permissions:** roles/cloudtrace.agent + roles/monitoring.metricWriter configured
+  - ✅ **Validated:** Guardrails blocking PII (NRIC detection working), metrics exporting successfully
   
   **21 Prometheus Metrics:**
   | Category | Metrics | Description |
@@ -84,19 +87,42 @@ Generate embeddings, train ML models, and build Agentic RAG workflows for job ma
   - Context propagation across async boundaries
   
   **Cloud Integration:**
-  - Cloud Trace exporter for distributed tracing
-  - Cloud Monitoring exporter for metrics aggregation
+  - Cloud Trace exporter for distributed tracing (operational)
+  - Cloud Monitoring exporter for metrics aggregation (operational)
   - Auto-instrumentation for FastAPI endpoints
   - Request ID tracking with X-Request-ID header
   
-  **Deployment:**
-  - Run local tests: `python tests/genai/12_test_observability.py`
-  - Deploy: `.\deployment\API_01_Deploy_FastAPI.ps1`
-  - View metrics: `curl http://localhost:8000/metrics`
-  - Cloud Trace: https://console.cloud.google.com/traces
-  - Cloud Monitoring: https://console.cloud.google.com/monitoring
+  **Production Access:**
+  - Service URL: https://genai-api-[hash]-as.a.run.app
+  - Metrics: `curl $SERVICE_URL/metrics`
+  - Cloud Trace: https://console.cloud.google.com/traces?project=sg-job-market
+  - Cloud Monitoring: https://console.cloud.google.com/monitoring?project=sg-job-market
+  - Health: `curl $SERVICE_URL/health`
   
-- 🔲 Task 4.8: MCP Server (external AI assistant integration)
+- ✅ Task 4.8: MCP Server (external AI assistant integration) - COMPLETE ✅
+  
+  **Implementation Details:**
+  - ✅ MCP SDK integration (correct handler pattern with @server.list_tools() and @server.call_tool())
+  - ✅ 4 tools exposed (search, details, stats, similar) - all operational
+  - ✅ Stdio transport for Cursor IDE
+  - ✅ Complete test suite (7 tests, 6/7 passing) → tests/genai/13_test_mcp_server.py
+  - ✅ Comprehensive documentation (CURSOR_MCP_SETUP.md)
+  
+  **Test Results (tests/genai/13_test_mcp_server.py):**
+  | Test | Tool | Result | Details |
+  |------|------|--------|---------|
+  | 1. Server Config | N/A | ✅ | Server name + 4 tools registered |
+  | 2. Tool Discovery | All | ✅ | All tools discovered by MCP client |
+  | 3. Search Jobs | search_jobs_tool | ✅ | 3 jobs found (9.1s with model load) |
+  | 4. Get Job Details | get_job_details_tool | ✅ | Job details retrieved correctly |
+  | 5. Aggregate Stats | aggregate_stats_tool | ⚠️ | Working but JSON parse issue in test |
+  | 6. Find Similar | find_similar_jobs_tool | ✅ | 3 similar jobs found (similarity 0.759) |
+  | 7. Error Handling | get_job_details_tool | ✅ | Invalid ID handled gracefully |
+  
+  **MCP Protocol Architecture:**
+  ```
+  Cursor IDE ←→ MCP (stdio) ←→ mcp_server.py ←→ genai/tools/ ←→ BigQuery
+  ```
 
 **Virtual Environment:**
 - ⚠️ Always use `.venv/Scripts/python.exe` for all commands

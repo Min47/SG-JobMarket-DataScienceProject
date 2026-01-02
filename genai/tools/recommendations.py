@@ -130,7 +130,7 @@ def find_similar_jobs(
         )
         
         ref_query_job = client.query(reference_query, job_config=ref_job_config)
-        ref_results = list(ref_query_job.result())
+        ref_results = list(ref_query_job.result(timeout=30))  # 30s timeout
         
         if not ref_results:
             result = {
@@ -198,7 +198,7 @@ def find_similar_jobs(
         )
         
         sim_query_job = client.query(similarity_query, job_config=sim_job_config)
-        sim_results = list(sim_query_job.result())
+        sim_results = list(sim_query_job.result(timeout=30))  # 30s timeout
         
         # Format similar jobs
         similar_jobs = []

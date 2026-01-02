@@ -8,11 +8,9 @@ This module provides:
 
 from genai.rag import retrieve_jobs, generate_answer
 from genai.agent import JobMarketAgent
-from genai.mcp_server import start_mcp_server
 
 __all__ = [
     "retrieve_jobs",
     "generate_answer",
     "JobMarketAgent",
-    "start_mcp_server",
 ]

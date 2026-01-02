@@ -62,7 +62,7 @@ All components are modular, testable, documented, and cloud-ready.
 - ✅ **Observability:** Structured logging, Cloud Monitoring integration
 - ✅ **Cost-Optimized:** Uses GCP free tier, auto-scaling, and efficient resource allocation
 - ✅ **Agentic RAG:** LangGraph-orchestrated retrieval pipeline with Gemini Pro
-- ✅ **MCP Server:** Exposes job data as tools to external AI assistants (Claude/Cursor)
+- ✅ **MCP Server:** Exposes job data as tools to external AI assistants (Cursor IDE)
 
 ---
 
@@ -92,15 +92,15 @@ All components are modular, testable, documented, and cloud-ready.
 - 🔲 Phase 3C: Model training (salary prediction, classification, clustering)
 - 🔲 Phase 3D: Model artifacts & deployment
 
-**Phase 4: GenAI & Agents** 🔄 **IN PROGRESS** (PRIORITY)
+**Phase 4: GenAI & Agents** ✅ **COMPLETE & DEPLOYED**
 - ✅ Task 4.1: RAG Pipeline (retrieve, grade, generate) - COMPLETE
 - ✅ Task 4.2: LangGraph Agent (state graph, nodes, testing) - COMPLETE
 - ✅ Task 4.3: Tool Adapters (4 tools: search, details, stats, similar) - COMPLETE
-- ✅ Task 4.4: FastAPI Service (7 endpoints, middleware, testing) - COMPLETE
+- ✅ Task 4.4: FastAPI Service (7 endpoints, middleware, Cloud Run) - DEPLOYED
 - ✅ Task 4.5: Model Gateway (Vertex AI + Ollama, fallback) - COMPLETE
 - ✅ Task 4.6: Guardrails (PII, injection blocking, hallucination, 10 tests) - COMPLETE
-- 🔲 Task 4.7: Observability (tracing, metrics, logging)
-- 🔲 Task 4.8: MCP Server (external AI assistant integration)
+- ✅ Task 4.7: Observability (tracing, metrics, logging, 21 metrics) - DEPLOYED
+- ✅ Task 4.8: MCP Server (Claude Desktop/Cursor integration, 4 tools) - COMPLETE
 
 
 

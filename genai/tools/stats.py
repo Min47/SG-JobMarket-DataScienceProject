@@ -154,7 +154,7 @@ def aggregate_stats(
         
         job_config = bigquery.QueryJobConfig(query_parameters=query_params)
         query_job = client.query(query, job_config=job_config)
-        results = list(query_job.result())
+        results = list(query_job.result(timeout=30))  # 30s timeout to prevent hanging
         
         # Format results
         stats = []

@@ -1,0 +1,11 @@
+{
+    "chat.mcp.serverSampling": {
+        "SG_Job_Market/.vscode/mcp.json: sg-job-market": {
+            "allowedModels": [
+                "copilot/claude-sonnet-4.5",
+                "copilot/gpt-4.1",
+                "copilot/gpt-4o"
+            ]
+        }
+    }
+}

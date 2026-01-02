@@ -1,0 +1,20 @@
+{
+	"servers": {
+		"sg-job-market": {
+			"type": "stdio",
+			"command": "C:\\Users\\User\\Documents\\SG_Job_Market\\.venv\\Scripts\\python.exe",
+			"args": [
+				"-m",
+				"genai.mcp_server"
+			],
+			"cwd": "C:\\Users\\User\\Documents\\SG_Job_Market",
+			"env": {
+				"GCP_PROJECT_ID": "sg-job-market",
+				"BIGQUERY_DATASET_ID": "sg_job_market",
+				"GCP_REGION": "asia-southeast1",
+				"GCS_BUCKET": "sg-job-market-data"
+			}
+		}
+	},
+	"inputs": []
+}

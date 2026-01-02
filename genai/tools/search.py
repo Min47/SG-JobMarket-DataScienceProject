@@ -253,7 +253,7 @@ def get_job_details(job_id: str, source: str) -> str:
         )
         
         query_job = client.query(query, job_config=job_config)
-        results = list(query_job.result())
+        results = list(query_job.result(timeout=30))  # 30s timeout to prevent hanging
         
         if not results:
             result = {
