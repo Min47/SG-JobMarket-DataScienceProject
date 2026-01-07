@@ -583,10 +583,10 @@ Can upgrade to Vertex AI embeddings later for production.
 
 ### Task 4.1.1: Query Embedding & Retrieval
 **File:** `genai/rag.py`
-- [ ] `embed_query()`: Generate embedding for user query using same SBERT model
-- [ ] `retrieve_jobs()`: BigQuery Vector Search with COSINE distance
-- [ ] Support filters: location, salary range, work type, classification
-- [ ] Hybrid search: Combine vector similarity + keyword matching (BM25-style)
+- [x] `embed_query()`: Generate embedding for user query using same SBERT model
+- [x] `retrieve_jobs()`: BigQuery Vector Search with COSINE distance
+- [x] Support filters: location, salary range, work type, classification
+- [x] Hybrid search: Combine vector similarity + keyword matching (BM25-style)
 
 ```python
 async def retrieve_jobs(
